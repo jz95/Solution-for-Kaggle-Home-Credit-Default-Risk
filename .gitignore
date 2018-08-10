@@ -1,0 +1,5 @@
+.DS_Store
+input/*
+notebook/.ipynb_checkpoints/
+notebook/open-solution-notebooks
+workdir/*
