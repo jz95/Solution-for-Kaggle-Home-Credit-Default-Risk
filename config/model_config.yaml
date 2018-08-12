@@ -1,22 +1,22 @@
-# input data filepath
-input:
-  train_filepath:                 ./input/application_train.csv
-  test_filepath:                  ./input/application_test.csv
-  bureau_balance_filepath:        ./input/bureau_balance.csv
-  bureau_filepath:                ./input/bureau.csv
-  credit_card_balance_filepath:   ./input/credit_card_balance.csv
-  installments_payments_filepath: ./input/installments_payments.csv
-  POS_CASH_balance_filepath:      ./input/POS_CASH_balance.csv
-  previous_application_filepath:  ./input/previous_application.csv
+#####################################
+##### CONFIG FOR NORMAL KFOLD CV ####
+#####################################
 
-# workspace
-workspace: ./workdir
-
-# model setting, only valid in training mode
-kfold_setting:
-  num_folds: 5
-  stratified: True
-  seed: Null
-  model_param:
-    n_estimator: 3000
-    learning_rate: 0.01
+num_folds: 5
+stratified: True
+seed: Null
+model_param:
+  nthread: 4
+  n_estimator: 3000
+  learning_rate: 0.01
+  num_leaves: 32
+  colsample_bytree: 0.0997036
+  subsample: 0.8715623
+  max_depth: -1
+  reg_alpha: 0.04
+  reg_lambda: 0.073
+  min_split_gain: 0.0222415
+  min_child_weight: 40
+  silent: -1
+  verbose: -1
+  # scale_pos_weight: 11

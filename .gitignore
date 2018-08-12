@@ -1,5 +1,6 @@
 .DS_Store
-input/*
+input/
 notebook/.ipynb_checkpoints/
 notebook/open-solution-notebooks
-workdir/*
+workdir/
+src/__pycache__

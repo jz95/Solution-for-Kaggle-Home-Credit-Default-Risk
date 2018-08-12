@@ -9,11 +9,12 @@ def main():
         or make prediction.")
     parser.add_argument(
         "-m", "--mode",
-        choices=['all', 'predict', 'search', 'extract'],
+        choices=['all', 'train', 'predict', 'search', 'extract'],
         default='all',
         help="choose a mode to start the program,\
         mode - all: train the model and \
         make prediction as submission for competition.\
+        mode - train: train the model.\
         mode - predict: make prediction using the trained model.\
         mode - search: perform random parameter search.\
         mode - extract: only extract features but not train the model.")

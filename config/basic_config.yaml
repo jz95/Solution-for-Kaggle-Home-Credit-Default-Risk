@@ -1,0 +1,19 @@
+########################
+### BASIC CONFIGURE  ###
+########################
+# NOTE: all path names are relative to main.py in root 
+# unless you speify the absolute path name
+
+# input data filepath
+input:
+  train_filepath:                 ./input/application_train.csv
+  test_filepath:                  ./input/application_test.csv
+  bureau_balance_filepath:        ./input/bureau_balance.csv
+  bureau_filepath:                ./input/bureau.csv
+  credit_card_balance_filepath:   ./input/credit_card_balance.csv
+  installments_payments_filepath: ./input/installments_payments.csv
+  POS_CASH_balance_filepath:      ./input/POS_CASH_balance.csv
+  previous_application_filepath:  ./input/previous_application.csv
+
+# workspace
+workspace: ./workdir
