@@ -33,7 +33,7 @@ class WorkSpace:
     def load(self, filename):
         i = filename.rfind('.') + 1
         extension = filename[i:]
-        filename = os.path.join(self._dir, '{}.{}'.format(filename, extension))
+        filename = os.path.join(self._dir, filename)
         if extension == 'pkl':
             with open(filename, 'rb') as f:
                 ret = pickle.load(f)
@@ -60,12 +60,12 @@ class WorkSpace:
             with open(filename, 'w') as f:
                 f.write(obj)
 
-    def clean(self):
-        pass
-
-    def gen_report(self):
-        src = './notebook/TemplateReport.ipynb'
-        dst = os.path.join(self._dir, 'TrainingReport.ipynb')
+    def gen_report(self, type_):
+        if type_ == 'kfold':
+            src = './notebook/TemplateReport/Kfold.ipynb'
+        elif type_ == 'grid_search':
+            src = './notebook/TemplateReport/GridSearch.ipynb'
+        dst = os.path.join(self._dir, 'report.ipynb')
         shutil.copyfile(src, dst)
 
 

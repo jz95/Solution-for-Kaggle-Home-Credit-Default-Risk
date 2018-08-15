@@ -4,13 +4,13 @@
 
 num_folds: 5
 stratified: True
-seed: Null
+seed: 2018
 model_param:
   nthread: 4
-  n_estimator: 3000
+  n_estimators: 3500
   learning_rate: 0.01
   num_leaves: 32
-  colsample_bytree: 0.0997036
+  colsample_bytree: 0.1
   subsample: 0.8715623
   max_depth: -1
   reg_alpha: 0.04

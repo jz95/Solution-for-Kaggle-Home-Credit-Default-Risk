@@ -14,8 +14,6 @@ def run(name, mode, debug, **kwargs):
     train_df = pd.read_csv(kwargs['train_path']
                            ) if kwargs['train_path'] else None
     test_df = pd.read_csv(kwargs['test_path']) if kwargs['test_path'] else None
-    import pdb
-    pdb.set_trace()
     if mode == 'search':
         if train_df is None or test_df is None:
                 train_df, _ = extract(workspace, debug, basic_config['input'])
@@ -77,7 +75,7 @@ def train(train_df, workspace, debug, model_config):
 
     workspace.save(result, 'result.pkl')
     workspace.save(models, 'kfold_lgb.pkl')
-    workspace.gen_report()
+    workspace.gen_report('kfold')
     return models
 
 
@@ -158,11 +156,9 @@ def kfold_lightgbm(train_df, debug, num_folds, stratified, seed, model_param):
 
 
 def parameter_search(train_df, workspace, debug, search_config):
-    searcher, search_result = \
-        grid_search(train_df, debug=debug, **search_config)
-    workspace.save(result, 'result.pkl')
+    searcher = grid_search(train_df, debug=debug, **search_config)
     workspace.save(searcher, 'grid_search.pkl')
-    # WorkSpace.gen_report()
+    workspace.gen_report('grid_search')
 
 
 def grid_search(train_df, debug, num_folds, stratified, seed, param_grid):
@@ -199,9 +195,14 @@ def grid_search(train_df, debug, num_folds, stratified, seed, param_grid):
         fixed_params['learning_rate'] = 0.3
 
     lgbClf = LGBMClassifier(**fixed_params)
-    searcher = GridSearchCV(lgbClf, param_grid, scoring='roc_auc',
-                            n_jobs=-1, refit=False, cv=folds, verbose=100)
+    searcher = GridSearchCV(estimator=lgbClf,
+                            param_grid=param_grid,
+                            cv=folds,
+                            scoring='roc_auc',
+                            n_jobs=-1,
+                            refit=False,
+                            verbose=5,
+                            return_train_score=True)
     searcher.fit(train_df[feats], train_df['TARGET'])
 
-    search_result = searcher.grid_scores_
-    return searcher, search_result
+    return searcher
