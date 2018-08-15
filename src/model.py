@@ -112,8 +112,8 @@ def kfold_lightgbm(train_df, debug, num_folds, stratified, seed, model_param):
         train_x, train_y = train_df[feats].iloc[train_idx], train_df['TARGET'].iloc[train_idx]
         valid_x, valid_y = train_df[feats].iloc[valid_idx], train_df['TARGET'].iloc[valid_idx]
 
-        # LightGBM parameters found by Bayesian optimization
-
+        # LGB's random_state is also specified by seed
+        model_param['random_state'] = seed
         clf = LGBMClassifier(**model_param)
         t0 = time.time()
         clf.fit(train_x, train_y,
@@ -194,6 +194,7 @@ def grid_search(train_df, debug, num_folds, stratified, seed, param_grid):
         fixed_params['n_estimators'] = 100
         fixed_params['learning_rate'] = 0.3
 
+    fixed_params['random_state'] = seed
     lgbClf = LGBMClassifier(**fixed_params)
     searcher = GridSearchCV(estimator=lgbClf,
                             param_grid=param_grid,

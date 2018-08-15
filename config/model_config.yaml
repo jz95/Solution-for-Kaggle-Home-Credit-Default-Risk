@@ -6,17 +6,22 @@ num_folds: 5
 stratified: True
 seed: 2018
 model_param:
-  nthread: 4
+  n_jobs: 16
+
   n_estimators: 3500
   learning_rate: 0.01
+  
   num_leaves: 32
+  max_depth: -1
+  
   colsample_bytree: 0.1
   subsample: 0.8715623
-  max_depth: -1
+  subsample_freq: 3
+  
   reg_alpha: 0.04
   reg_lambda: 0.073
+  
   min_split_gain: 0.0222415
   min_child_weight: 40
-  silent: -1
-  verbose: -1
+  min_child_samples: 20
   # scale_pos_weight: 11

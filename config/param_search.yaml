@@ -6,8 +6,11 @@ num_folds: 5
 stratified: True
 seed: 2018
 param_grid:
+  n_jobs: 16
+
   n_estimators: 3000
   learning_rate: 0.01
+
   num_leaves:
     - 31
     - 63

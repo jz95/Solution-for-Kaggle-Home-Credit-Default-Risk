@@ -789,6 +789,6 @@ def feature_extract(debug, input_config):
     with timer("Process Final Stage"):
         df = final_process(df)
         # feature selection
-        df.drop(columns=DROP_FEATS, inplace=True)
+        df.drop(columns=list(set(DROP_FEATS) & set(df.columns)), inplace=True)
 
     return df[df['TARGET'].notnull()], df[df['TARGET'].isnull()]
