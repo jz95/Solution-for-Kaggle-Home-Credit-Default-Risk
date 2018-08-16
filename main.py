@@ -18,7 +18,6 @@ def main():
         mode - predict: make prediction using the trained model.\
         mode - search: perform random parameter search.\
         mode - extract: only extract features but not train the model.")
-
     parser.add_argument(
         "--train-data",
         help="specify the train dataset file path,\

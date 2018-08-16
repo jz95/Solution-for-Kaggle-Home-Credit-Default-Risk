@@ -70,12 +70,18 @@ def lightgbm_pred(test_df, models):
 
 
 def train(train_df, workspace, debug, model_config):
-    models, result = \
-        kfold_lightgbm(train_df, debug=debug, **model_config)
+    is_single = model_config['num_folds'] < 1
+    if is_single:
+        print("INFO: num_folds is less than 1, SINGLE MODEL would be trained.")
+        models = single_lightgbm(train_df, debug=debug, **model_config)
+        workspace.save(models, 'single_lgb.pkl')
+    else:
+        models, result = \
+            kfold_lightgbm(train_df, debug=debug, **model_config)
 
-    workspace.save(result, 'result.pkl')
-    workspace.save(models, 'kfold_lgb.pkl')
-    workspace.gen_report('kfold')
+        workspace.save(result, 'result.pkl')
+        workspace.save(models, 'kfold_lgb.pkl')
+        workspace.gen_report('kfold')
     return models
 
 
@@ -155,6 +161,31 @@ def kfold_lightgbm(train_df, debug, num_folds, stratified, seed, model_param):
     return models, training_result
 
 
+def single_lightgbm(train_df, debug, seed, model_param, **kwargs):
+    seed = np.random.randint(2018) if seed is None else seed
+
+    feats = [f for f in train_df.columns if f not in [
+        'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
+    train_x, train_y = train_df[feats], train_df['TARGET']
+    models = {}
+    # force reset the model_param in debug mode
+    if debug:
+        model_param['n_estimators'] = 100
+        model_param['learning_rate'] = 0.3
+
+    # LGB's random_state is also specified by seed
+    model_param['random_state'] = seed
+    clf = LGBMClassifier(**model_param)
+    with timer('Train single lightgbm'):
+        clf.fit(train_x, train_y,
+                eval_set=[(train_x, train_y)],
+                eval_metric='auc', verbose=100,
+                early_stopping_rounds=200)
+
+    models['single_model'] = clf
+    return models
+
+
 def parameter_search(train_df, workspace, debug, search_config):
     searcher = grid_search(train_df, debug=debug, **search_config)
     workspace.save(searcher, 'grid_search.pkl')
@@ -196,6 +227,16 @@ def grid_search(train_df, debug, num_folds, stratified, seed, param_grid):
 
     fixed_params['random_state'] = seed
     lgbClf = LGBMClassifier(**fixed_params)
+
+    # log info
+    print("fixed_params:")
+    for key, val in fixed_params.items():
+        print("%-20s = %s" % (key, val))
+
+    print("seach_params:")
+    for key, val in param_grid.items():
+        print("%-20s = %s" % (key, val))
+
     searcher = GridSearchCV(estimator=lgbClf,
                             param_grid=param_grid,
                             cv=folds,

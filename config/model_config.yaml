@@ -2,6 +2,9 @@
 ##### CONFIG FOR NORMAL KFOLD CV ####
 #####################################
 
+# if set num_folds < 1,
+# prog would only train a single model
+# rather than use cross validation 
 num_folds: 5
 stratified: True
 seed: 2018
