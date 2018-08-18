@@ -1,0 +1,137 @@
+#################################
+### CONFIG FOR MODEL STACKING ###
+#################################
+stacking_setting:
+  num_folds: 5
+  stratified: True
+  random_state: 2018
+
+base_classifier:
+  - name: base_lgb_1
+    model_param:
+      random_state: 1
+      n_jobs: 2
+      verbose: -1
+
+      n_estimators: 3800
+      learning_rate: 0.01
+      
+      num_leaves: 43
+      max_depth: -1
+      
+      colsample_bytree: 0.1
+      subsample: 0.85
+      subsample_freq: 3
+      
+      reg_alpha: 0
+      reg_lambda: 0.073
+      
+      min_split_gain: 0.0222415
+      min_child_weight: 45
+      min_child_samples: 20
+
+  - name: base_lgb_2
+    model_param:
+      random_state: 2
+      n_jobs: 2
+      verbose: -1
+
+      n_estimators: 2500
+      learning_rate: 0.015
+      
+      num_leaves: 32
+      max_depth: -1
+      
+      colsample_bytree: 0.12
+      subsample: 0.75
+      subsample_freq: 3
+      
+      reg_alpha: 0.04
+      reg_lambda: 0.073
+      
+      min_split_gain: 0.0222415
+      min_child_weight: 35
+      min_child_samples: 20
+
+  - name: base_lgb_3
+    model_param:
+      random_state: 3
+      n_jobs: 2
+      verbose: -1
+
+      n_estimators: 3000
+      learning_rate: 0.012
+      
+      num_leaves: 45
+      max_depth: -1
+      
+      colsample_bytree: 0.08
+      subsample: 0.8
+      subsample_freq: 3
+      
+      reg_alpha: 0
+      reg_lambda: 0
+      
+      min_split_gain: 0.0222415
+      min_child_weight: 45
+      min_child_samples: 20
+
+  - name: base_lgb_4
+    model_param:
+      random_state: 4
+      n_jobs: 2
+      verbose: -1
+
+      n_estimators: 4500
+      learning_rate: 0.008
+      
+      num_leaves: 43
+      max_depth: -1
+      
+      colsample_bytree: 0.1
+      subsample: 0.85
+      subsample_freq: 3
+      
+      reg_alpha: 0.1
+      reg_lambda: 0
+      
+      min_split_gain: 0.0222415
+      min_child_weight: 45
+      min_child_samples: 20
+
+  - name: base_lgb_5
+    model_param:
+      random_state: 5
+      n_jobs: 2
+      verbose: -1
+
+      n_estimators: 3000
+      learning_rate: 0.01
+      
+      num_leaves: 38
+      max_depth: -1
+      
+      colsample_bytree: 0.1
+      subsample: 0.85
+      subsample_freq: 3
+      
+      reg_alpha: 0
+      reg_lambda: 0.5
+      
+      min_split_gain: 0.0222415
+      min_child_weight: 38
+      min_child_samples: 20
+
+# setting for logistic regression
+meta_classifier:
+  model_param:
+    random_state: 2018
+    max_iter: 1500
+    cv: 5
+    Cs:
+      - 0.001
+      - 0.01
+      - 0.1
+      - 0.5
+      - 1
+      - 10

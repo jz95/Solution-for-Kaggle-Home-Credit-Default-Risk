@@ -6,6 +6,7 @@ import pickle
 import pandas as pd
 import matplotlib.pyplot as plt
 import shutil
+from sklearn.model_selection import KFold, StratifiedKFold
 
 
 @contextmanager
@@ -21,19 +22,18 @@ class WorkSpaceError(Exception):
 
 class WorkSpace:
     def __init__(self, name, path='./workdir'):
-        self._name = name
-        self._path = os.path.abspath(path)
-        self._dir = os.path.join(self._path, self._name)
-        self._logger = None
-        if not os.path.exists(self._dir):
-            os.mkdir(self._dir)
+        self.__name = name
+        self.__path = os.path.abspath(path)
+        self.__dir = os.path.join(self.__path, self.__name)
+        if not os.path.exists(self.__dir):
+            os.mkdir(self.__dir)
         else:
             pass
 
     def load(self, filename):
         i = filename.rfind('.') + 1
         extension = filename[i:]
-        filename = os.path.join(self._dir, filename)
+        filename = os.path.join(self.__dir, filename)
         if extension == 'pkl':
             with open(filename, 'rb') as f:
                 ret = pickle.load(f)
@@ -45,10 +45,20 @@ class WorkSpace:
 
         return ret
 
+    def load_model(self):
+        filenames = ['kfold_lgb.pkl', 'single_lgb.pkl', 'stacking.pkl']
+        ret = None
+        for filename in filenames:
+            fullname = os.path.join(self.__dir, filename)
+            if os.path.exists(fullname):
+                ret = self.load(filename)
+                break
+        return ret
+
     def save(self, obj, filename):
         i = filename.rfind('.') + 1
         extension = filename[i:]
-        filename = os.path.join(self._dir, filename)
+        filename = os.path.join(self.__dir, filename)
         if extension == 'pkl':
             with open(filename, 'wb') as f:
                 pickle.dump(obj, f)
@@ -65,7 +75,7 @@ class WorkSpace:
             src = './notebook/TemplateReport/Kfold.ipynb'
         elif type_ == 'grid_search':
             src = './notebook/TemplateReport/GridSearch.ipynb'
-        dst = os.path.join(self._dir, 'report.ipynb')
+        dst = os.path.join(self.__dir, 'report.ipynb')
         shutil.copyfile(src, dst)
 
 
@@ -73,6 +83,13 @@ def read_config(filename):
     with open(filename, 'r') as f:
         data = yaml.load(f)
     return data
+
+
+def gen_cv(num_folds, random_state, stratified):
+    if stratified:
+        return StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=random_state)
+    else:
+        return KFold(n_splits=num_folds, shuffle=True, random_state=random_state)
 
 
 if __name__ == '__main__':

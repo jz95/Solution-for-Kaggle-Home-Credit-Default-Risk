@@ -1,10 +1,9 @@
 from src.utils import *
 from src.feature_extract import feature_extract
+from src.HomeCreditClassifier import *
 from lightgbm import LGBMClassifier
-from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import KFold, StratifiedKFold, GridSearchCV
-import gc
-import numpy as np
+from sklearn.model_selection import GridSearchCV
+from sklearn.linear_model import LogisticRegressionCV
 import pandas as pd
 
 
@@ -16,7 +15,7 @@ def run(name, mode, debug, **kwargs):
     test_df = pd.read_csv(kwargs['test_path']) if kwargs['test_path'] else None
     if mode == 'search':
         if train_df is None or test_df is None:
-                train_df, _ = extract(workspace, debug, basic_config['input'])
+            train_df, _ = extract(workspace, debug, basic_config['input'])
         search_config = read_config('./config/param_search.yaml')
         parameter_search(train_df, workspace, debug, search_config)
     elif mode == 'extract':
@@ -26,18 +25,49 @@ def run(name, mode, debug, **kwargs):
             raise ValueError(
                 'must specify the test_path when using predict mode.')
         predict(test_df, workspace)
+    elif mode == 'stacking':
+        stacking_config = read_config('./config/stacking_config.yaml')
+        stacking(train_df, workspace, debug, stacking_config)
     # all & train mode
     else:
         model_config = read_config('./config/model_config.yaml')
         if mode == 'all':
             if train_df is None or test_df is None:
-                train_df, test_df = extract(workspace, debug, basic_config['input'])
+                train_df, test_df = extract(
+                    workspace, debug, basic_config['input'])
             models = train(train_df, workspace, debug, model_config)
             predict(test_df, workspace, pred_model=models)
         elif mode == 'train':
             if train_df is None:
                 train_df, _ = extract(workspace, debug, basic_config['input'])
             train(train_df, workspace, debug, config)
+
+
+def stacking(train_df, workspace, debug, stacking_config):
+    # construct base classifiers
+    base_lgbClfs = {}
+    for clf_setting in stacking_config['base_classifier']:
+        clf_name = clf_setting['name']
+        model_param = clf_setting['model_param']
+        # force reset the model_param in debug mode
+        if debug:
+            model_param['n_estimators'] = 100
+            model_param['learning_rate'] = 0.3
+        base_lgbClfs[clf_name] = LGBMClassifier(**model_param)
+
+    # construct meta classifier
+    meta_param = stacking_config['meta_classifier']['model_param']
+    meta_clf = LogisticRegressionCV(refit=True, scoring='roc_auc', verbose=10, **meta_param)
+
+    # construct cv for stacking model
+    cv = gen_cv(**stacking_config['stacking_setting'])
+
+    # construct stacking model
+    stClf = StackingClassifier(base_lgbClfs, meta_clf, cv)
+    feats = [f for f in train_df.columns if f not in [
+        'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
+    stClf.fit(train_df[feats], train_df['TARGET'])
+    workspace.save(stClf, 'stacking.pkl')
 
 
 def extract(workspace, debug, input_config):
@@ -49,141 +79,65 @@ def extract(workspace, debug, input_config):
 
 def predict(test_df, workspace, **kwargs):
     if 'pred_model' in kwargs and kwargs['pred_model'] is not None:
-        models = kwargs['pred_model']
+        model = kwargs['pred_model']
     else:
-        models = workspace.load('kfold_lgb.pkl')
-    preds = lightgbm_pred(test_df, models)
+        model = workspace.load_model()
+    preds = lightgbm_pred(test_df, model)
     test_df['TARGET'] = preds
     workspace.save(test_df[['SK_ID_CURR', 'TARGET']], 'preds.csv')
 
 
-def lightgbm_pred(test_df, models):
+def lightgbm_pred(test_df, model):
     feats = [f for f in test_df.columns if f not in [
         'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
-    test_preds = np.zeros(test_df.shape[0])
-    for clf in models.values():
-        test_preds += clf.predict_proba(test_df[feats],
-                                   num_iteration=clf.best_iteration_)[:, 1]
-    num_folds = len(models)
-    test_preds = test_preds / num_folds
-    return test_preds
+    return model.predict_proba(test_df[feats])
 
 
 def train(train_df, workspace, debug, model_config):
-    is_single = model_config['num_folds'] < 1
+    is_single = model_config['kfold_setting']['num_folds'] < 1
     if is_single:
         print("INFO: num_folds is less than 1, SINGLE MODEL would be trained.")
-        models = single_lightgbm(train_df, debug=debug, **model_config)
-        workspace.save(models, 'single_lgb.pkl')
+        model = single_lightgbm(train_df, debug=debug, **model_config)
+        workspace.save(model, 'single_lgb.pkl')
     else:
-        models, result = \
-            kfold_lightgbm(train_df, debug=debug, **model_config)
-
-        workspace.save(result, 'result.pkl')
-        workspace.save(models, 'kfold_lgb.pkl')
+        model = kfold_lightgbm(train_df, debug=debug, **model_config)
+        workspace.save(model, 'kfold_lgb.pkl')
         workspace.gen_report('kfold')
-    return models
+    return model
 
 
-def kfold_lightgbm(train_df, debug, num_folds, stratified, seed, model_param):
-    seed = np.random.randint(2018) if seed is None else seed
-    if stratified:
-        folds = StratifiedKFold(
-            n_splits=num_folds, shuffle=True, random_state=seed)
-    else:
-        folds = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
-
-    # out of fold results
-    oof_preds = np.zeros(train_df.shape[0])
-
+def kfold_lightgbm(train_df, debug, kfold_setting, model_param):
     feats = [f for f in train_df.columns if f not in [
         'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
-
-    models = {}
-    training_result = {}
-    training_result['feature'] = feats
-    training_result['seed'] = seed
-    training_result['stratified'] = stratified
-    training_result['lgb_param'] = model_param
-    training_result['kfold_result'] = {}
-    kfold_result = training_result['kfold_result']
-
-    # force reset the model_param in debug mode
     if debug:
         model_param['n_estimators'] = 100
         model_param['learning_rate'] = 0.3
 
-    for n_fold, (train_idx, valid_idx) in enumerate(
-            folds.split(train_df[feats], train_df['TARGET']), start=1):
-        train_x, train_y = train_df[feats].iloc[train_idx], train_df['TARGET'].iloc[train_idx]
-        valid_x, valid_y = train_df[feats].iloc[valid_idx], train_df['TARGET'].iloc[valid_idx]
+    lgbClf = LGBMClassifier(**model_param)
+    cv = gen_cv(**kfold_setting)
+    model = KFoldClassifier(lgbClf, cv)
 
-        # LGB's random_state is also specified by seed
-        model_param['random_state'] = seed
-        clf = LGBMClassifier(**model_param)
-        t0 = time.time()
-        clf.fit(train_x, train_y,
-                eval_set=[(train_x, train_y), (valid_x, valid_y)],
-                eval_metric='auc', verbose=100, early_stopping_rounds=200)
-        t1 = time.time()
-        oof_preds[valid_idx] = clf.predict_proba(
-            valid_x, num_iteration=clf.best_iteration_)[:, 1]
-        # collect fold result for analysis
-        fold_result = {}
-        fold_result['using_time'] = t1 - t0
-        fold_result['best_iteration'] = clf.best_iteration_
-        fold_result['feature_importance'] = clf.feature_importances_
-
-        fold_result['best_score'] = {}
-        fold_result['best_score']['training'] = clf.best_score_[
-            'training']['auc']
-        fold_result['best_score']['valid'] = clf.best_score_[
-            'valid_1']['auc']
-
-        fold_result['evals_result'] = {}
-        fold_result['evals_result']['training'] = clf.evals_result_[
-            'training']['auc']
-        fold_result['evals_result']['valid'] = clf.evals_result_[
-            'valid_1']['auc']
-
-        print('Fold %2d AUC : %.6f' % (n_fold, fold_result['best_score']['valid']))
-
-        kfold_result['fold_%s' % n_fold] = fold_result
-        models[n_fold] = clf
-
-        del clf, train_x, train_y, valid_x, valid_y
-        gc.collect()
-
-    full_auc = roc_auc_score(train_df['TARGET'], oof_preds)
-    print('Full AUC score %.6f' % full_auc)
-    training_result['full_auc'] = full_auc
-
-    return models, training_result
+    with timer('Train KFold lightgbm'):
+        model.fit(train_df[feats], train_df['TARGET'])
+    return model
 
 
-def single_lightgbm(train_df, debug, seed, model_param, **kwargs):
-    seed = np.random.randint(2018) if seed is None else seed
-
+def single_lightgbm(train_df, debug, model_param, **kwargs):
     feats = [f for f in train_df.columns if f not in [
         'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
     train_x, train_y = train_df[feats], train_df['TARGET']
-    models = {}
     # force reset the model_param in debug mode
     if debug:
         model_param['n_estimators'] = 100
         model_param['learning_rate'] = 0.3
 
-    # LGB's random_state is also specified by seed
-    model_param['random_state'] = seed
-    clf = LGBMClassifier(**model_param)
+    model = LGBMClassifier(**model_param)
     with timer('Train single lightgbm'):
-        clf.fit(train_x, train_y,
-                eval_set=[(train_x, train_y)],
-                eval_metric='auc', verbose=100,
-                early_stopping_rounds=200)
+        model.fit(train_x, train_y,
+                  eval_set=[(train_x, train_y)],
+                  eval_metric='auc', verbose=100)
 
-    models['single_model'] = clf
-    return models
+    return model
 
 
 def parameter_search(train_df, workspace, debug, search_config):
@@ -192,14 +146,7 @@ def parameter_search(train_df, workspace, debug, search_config):
     workspace.gen_report('grid_search')
 
 
-def grid_search(train_df, debug, num_folds, stratified, seed, param_grid):
-    seed = np.random.randint(2018) if seed is None else seed
-    if stratified:
-        folds = StratifiedKFold(
-            n_splits=num_folds, shuffle=True, random_state=seed)
-    else:
-        folds = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
-
+def grid_search(train_df, debug, kfold_setting, param_grid):
     feats = [f for f in train_df.columns if f not in [
         'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
 
@@ -225,9 +172,6 @@ def grid_search(train_df, debug, num_folds, stratified, seed, param_grid):
         fixed_params['n_estimators'] = 100
         fixed_params['learning_rate'] = 0.3
 
-    fixed_params['random_state'] = seed
-    lgbClf = LGBMClassifier(**fixed_params)
-
     # log info
     print("fixed_params:")
     for key, val in fixed_params.items():
@@ -237,9 +181,15 @@ def grid_search(train_df, debug, num_folds, stratified, seed, param_grid):
     for key, val in param_grid.items():
         print("%-20s = %s" % (key, val))
 
+    lgbClf = LGBMClassifier(**fixed_params)
+
+    # construct cv
+    cv = gen_cv(**kfold_setting)
+
+    # construct Grid searcher
     searcher = GridSearchCV(estimator=lgbClf,
                             param_grid=param_grid,
-                            cv=folds,
+                            cv=cv,
                             scoring='roc_auc',
                             n_jobs=-1,
                             refit=False,

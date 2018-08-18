@@ -9,7 +9,7 @@ def main():
         or make prediction.")
     parser.add_argument(
         "-m", "--mode",
-        choices=['all', 'train', 'predict', 'search', 'extract'],
+        choices=['all', 'train', 'predict', 'search', 'extract', 'stacking'],
         default='all',
         help="choose a mode to start the program,\
         mode - all: train the model and \
@@ -17,7 +17,8 @@ def main():
         mode - train: train the model.\
         mode - predict: make prediction using the trained model.\
         mode - search: perform random parameter search.\
-        mode - extract: only extract features but not train the model.")
+        mode - extract: only extract features but not train the model.\
+        mode - stacking: run the model in stacking mode.")
     parser.add_argument(
         "--train-data",
         help="specify the train dataset file path,\
@@ -47,6 +48,9 @@ def main():
 
     if args.mode == 'search' and not args.name:
         name = 'PARAM_SEARCH_' + name
+
+    if args.mode == 'stacking' and not args.name:
+        name = 'STACKING_' + name
 
     if args.debug and not args.name:
         name += '_DEBUG'

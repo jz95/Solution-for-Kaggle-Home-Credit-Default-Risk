@@ -5,26 +5,29 @@
 # if set num_folds < 1,
 # prog would only train a single model
 # rather than use cross validation 
-num_folds: 5
-stratified: True
-seed: 2018
-model_param:
-  n_jobs: 16
+kfold_setting:
+  num_folds: 5
+  stratified: True
+  random_state: 2018
 
-  n_estimators: 3500
+model_param:
+  n_jobs: 2
+  verbose: -1
+
+  n_estimators: 3800
   learning_rate: 0.01
   
-  num_leaves: 32
+  num_leaves: 43
   max_depth: -1
   
   colsample_bytree: 0.1
-  subsample: 0.8715623
+  subsample: 0.85
   subsample_freq: 3
   
   reg_alpha: 0.04
   reg_lambda: 0.073
   
   min_split_gain: 0.0222415
-  min_child_weight: 40
+  min_child_weight: 45
   min_child_samples: 20
   # scale_pos_weight: 11
