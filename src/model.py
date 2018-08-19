@@ -15,35 +15,49 @@ def run(name, mode, debug, **kwargs):
     test_df = pd.read_csv(kwargs['test_path']) if kwargs['test_path'] else None
     if mode == 'search':
         if train_df is None or test_df is None:
-            train_df, _ = extract(workspace, debug, basic_config['input'])
+            train_df, _ = runExtract(workspace, debug, basic_config['input'])
         search_config = read_config('./config/param_search.yaml')
-        parameter_search(train_df, workspace, debug, search_config)
+        runSearch(train_df, workspace, debug, search_config)
     elif mode == 'extract':
-        extract(workspace, debug, basic_config['input'])
+        runExtract(workspace, debug, basic_config['input'])
     elif mode == 'predict':
         if test_df is None:
             raise ValueError(
                 'must specify the test_path when using predict mode.')
-        predict(test_df, workspace)
+        runPredict(test_df, workspace)
     elif mode == 'stacking':
         stacking_config = read_config('./config/stacking_config.yaml')
-        stacking(train_df, workspace, debug, stacking_config)
+        model = runStacking(train_df, workspace, debug, stacking_config)
+        runPredict(test_df, workspace, pred_model=model)
     # all & train mode
     else:
         model_config = read_config('./config/model_config.yaml')
         if mode == 'all':
             if train_df is None or test_df is None:
-                train_df, test_df = extract(
+                train_df, test_df = runExtract(
                     workspace, debug, basic_config['input'])
-            models = train(train_df, workspace, debug, model_config)
-            predict(test_df, workspace, pred_model=models)
+            models = runTrain(train_df, workspace, debug, model_config)
+            runPredict(test_df, workspace, pred_model=models)
         elif mode == 'train':
             if train_df is None:
-                train_df, _ = extract(workspace, debug, basic_config['input'])
-            train(train_df, workspace, debug, config)
+                train_df, _ = runExtract(workspace, debug, basic_config['input'])
+            runTrain(train_df, workspace, debug, config)
 
 
-def stacking(train_df, workspace, debug, stacking_config):
+def runExtract(workspace, debug, input_config):
+    train_df, test_df = feature_extract(debug, input_config)
+    workspace.save(train_df, 'train_df.csv')
+    workspace.save(test_df, 'test_df.csv')
+    return train_df, test_df
+
+
+def runStacking(train_df, workspace, debug, stacking_config):
+    model = stacking(train_df, debug, stacking_config)
+    workspace.save(model, 'stacking.pkl')
+    workspace.gen_report('stacking')
+
+
+def stacking(train_df, debug, stacking_config):
     # construct base classifiers
     base_lgbClfs = {}
     for clf_setting in stacking_config['base_classifier']:
@@ -67,17 +81,10 @@ def stacking(train_df, workspace, debug, stacking_config):
     feats = [f for f in train_df.columns if f not in [
         'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
     stClf.fit(train_df[feats], train_df['TARGET'])
-    workspace.save(stClf, 'stacking.pkl')
+    return stClf
 
 
-def extract(workspace, debug, input_config):
-    train_df, test_df = feature_extract(debug, input_config)
-    workspace.save(train_df, 'train_df.csv')
-    workspace.save(test_df, 'test_df.csv')
-    return train_df, test_df
-
-
-def predict(test_df, workspace, **kwargs):
+def runPredict(test_df, workspace, **kwargs):
     if 'pred_model' in kwargs and kwargs['pred_model'] is not None:
         model = kwargs['pred_model']
     else:
@@ -93,7 +100,7 @@ def lightgbm_pred(test_df, model):
     return model.predict_proba(test_df[feats])
 
 
-def train(train_df, workspace, debug, model_config):
+def runTrain(train_df, workspace, debug, model_config):
     is_single = model_config['kfold_setting']['num_folds'] < 1
     if is_single:
         print("INFO: num_folds is less than 1, SINGLE MODEL would be trained.")
@@ -140,7 +147,7 @@ def single_lightgbm(train_df, debug, model_param, **kwargs):
     return model
 
 
-def parameter_search(train_df, workspace, debug, search_config):
+def runSearch(train_df, workspace, debug, search_config):
     searcher = grid_search(train_df, debug=debug, **search_config)
     workspace.save(searcher, 'grid_search.pkl')
     workspace.gen_report('grid_search')

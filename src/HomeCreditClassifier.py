@@ -123,6 +123,7 @@ class StackingClassifier:
 
     def fit(self, X, y):
         new_X = self.__gen_new_X_fit(X, y)
+        self.__newX_fit = new_X
         print('Train meta classifier.')
         self.__meta_classifier.fit(new_X, y)
         return self.__meta_classifier
@@ -134,7 +135,7 @@ class StackingClassifier:
 
         for i, clf in enumerate(self.__base_classifiers):
             print('Train on base classifier - %s.' % clf.name_)
-            print('=' * 50)
+            print('=' * 60)
             clf.fit(X, y)
             print('\n')
             ret[:, i] = clf.oof_preds_
@@ -156,3 +157,7 @@ class StackingClassifier:
     @property
     def meta_classifier_(self):
         return self.__meta_classifier
+
+    @property
+    def newX_fit(self):
+        return self.__newX_fit

@@ -75,6 +75,8 @@ class WorkSpace:
             src = './notebook/TemplateReport/Kfold.ipynb'
         elif type_ == 'grid_search':
             src = './notebook/TemplateReport/GridSearch.ipynb'
+        elif type_ == 'stacking':
+            src = './notebook/TemplateReport/Stacking.ipynb'
         dst = os.path.join(self.__dir, 'report.ipynb')
         shutil.copyfile(src, dst)
 
