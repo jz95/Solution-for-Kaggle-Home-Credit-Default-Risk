@@ -17,6 +17,64 @@ def one_hot_encoding(df, nan_as_category):
     return df, new_columns
 
 
+def batch_box(df, cols):
+    level_cols = []
+    for col in cols:
+        temp = df[col]
+        upBnd = temp.quantile(0.99)
+        downBnd = temp.quantile(0.01)
+        temp[df[col] > upBnd] = upBnd
+        temp[df[col] < downBnd] = downBnd
+        new_col_name = col + '_LEVEL'
+        level_cols.append(new_col_name)
+        df[new_col_name] = pd.cut(temp, bins=4)
+    return df, level_cols
+
+
+def batch_agg(df, by_cols, on_cols, prefix=''):
+    agg_info = []
+    for by_col in by_cols:
+        info = dict(by=list(by_col), on=on_cols, agg='mean')
+        agg_info.append(info)
+
+    for info in agg_info:
+        by_cols = info['by']
+        on_cols = info['on']
+        agg_method = info['agg']
+        gby = df.groupby(by_cols)[on_cols]
+        new_col_names = [
+            "{}{}_ON_{}_BY_{}".
+            format(prefix,
+                   agg_method,
+                   on_col,
+                   '_N_'.join(by_cols))
+            .upper() for on_col in on_cols
+        ]
+        nameMap = dict(zip(on_cols, new_col_names))
+        temp = gby.agg(agg_method).rename(columns=nameMap).reset_index()
+        df = df.merge(temp, on=by_cols, how='left')
+    return df
+
+
+def gen_agg_info(by_cols, on_cols, by_num):
+    ret = []
+
+    def rec(i, by_cols_select, n_left):
+        if n_left == 0:
+            infoDict = {}
+            infoDict['by'] = by_cols_select
+            infoDict['on'] = on_cols
+            infoDict['agg'] = 'mean'
+            ret.append(infoDict)
+            return
+
+        for j in range(i, len(by_cols) - n_left + 1):
+            rec(j + 1, by_cols_select + [by_cols[j]], n_left - 1)
+
+    rec(0, [], by_num)
+    return ret
+
+
 def application_train_test(train_df, test_df, nan_as_category=False):
     # merge the train and test DataFrame
     df = train_df.append(test_df).reset_index()
@@ -24,7 +82,13 @@ def application_train_test(train_df, test_df, nan_as_category=False):
     del train_df, test_df
     gc.collect()
 
+    # data cleaning
     df = df[df['CODE_GENDER'] != 'XNA']
+
+    social_cols = [col for col in df.columns if 'SOCIAL' in col]
+    df.loc[df['DEF_30_CNT_SOCIAL_CIRCLE'] == 34, social_cols] = np.nan
+
+    df['REGION_RATING_CLIENT_W_CITY'].replace(-1, np.nan, inplace=True)
     df['DAYS_EMPLOYED'].replace(365243, np.nan, inplace=True)
 
     # Categorical features with Binary encode (0 or 1; two categories)
@@ -43,16 +107,14 @@ def application_train_test(train_df, test_df, nan_as_category=False):
     df['APP_CAR_TO_BIRTH_RATIO'] = df['OWN_CAR_AGE'] / (df['DAYS_BIRTH'] / 365.25)
     df['APP_CAR_TO_EMPLOY_RATIO'] = df['OWN_CAR_AGE'] / (df['DAYS_EMPLOYED'] / 365.35)
 
-    df['APP_PHONE_TO_BIRTH_RATIO'] = df['DAYS_LAST_PHONE_CHANGE'] / df['DAYS_BIRTH']
-    df['APP_PHONE_TO_REG_RATIO'] = df['DAYS_LAST_PHONE_CHANGE'] / df['DAYS_REGISTRATION']
-    df['APP_PHONE_TO_EMPLOY_RATIO_'] = df['DAYS_LAST_PHONE_CHANGE'] / df['DAYS_EMPLOYED']
-    df['APP_EMPLOY_TO_BIRTH_RATIO'] = df['DAYS_EMPLOYED'] / df['DAYS_BIRTH']
-    df['APP_EMPLOY_TO_REG_RATIO'] = df['DAYS_EMPLOYED'] / df['DAYS_REGISTRATION']
-    df['APP_ID_PUB_TO_BIRTH_RATIO'] = df['DAYS_ID_PUBLISH'] / df['DAYS_BIRTH']
-    df['APP_REG_TO_BIRTH_RATIO'] = df['DAYS_REGISTRATION'] / df['DAYS_BIRTH']
-    df['APP_ID_PUB_TO_RE_RATIO'] = df['DAYS_ID_PUBLISH'] / df['DAYS_REGISTRATION']
+    days_cols = [col for col in df.columns if 'DAYS_' in col]
+    for i in range(len(days_cols)):
+        for j in range(i + 1, len(days_cols)):
+            col1, col2 = days_cols[i], days_cols[j]
+            new_col_name = "APP_{}_TO_{}_RATIO".format(col1[5:], col2[5:])
+            df[new_col_name] = df[col1] / df[col2]
 
-    df['APP_INCOME_PER_CHLD'] = df['AMT_INCOME_TOTAL'] / (1 + df['CNT_CHILDREN'])
+    df['APP_INCOME_PER_CHILD'] = df['AMT_INCOME_TOTAL'] / (1 + df['CNT_CHILDREN'])
     df['APP_INCOME_PER_ADULT'] = df['AMT_INCOME_TOTAL'] / (df['CNT_FAM_MEMBERS'] - df['CNT_CHILDREN'])
 
     # EXT_SCORES
@@ -62,12 +124,19 @@ def application_train_test(train_df, test_df, nan_as_category=False):
 
     df['APP_SCORE1_TO_BIRTH_RATIO'] = df['EXT_SOURCE_1'] / (df['DAYS_BIRTH'] / 365.25)
     df['APP_SCORE1_TO_EMPLOY_RATIO'] = df['EXT_SOURCE_1'] / (df['DAYS_EMPLOYED'] / 365.25)
-    df['APP_SCORE3_TO_BIRTH_RATIO'] = df['EXT_SOURCE_3'] / (df['DAYS_BIRTH'] / 365.25)
-    df['APP_SCORE1_TO_SCORE2_RATIO'] = df['EXT_SOURCE_1'] / df['EXT_SOURCE_2'] 
+    df['APP_SCORE1_TO_FAM_CNT_RATIO'] = df['EXT_SOURCE_1'] / df['CNT_FAM_MEMBERS']
+    df['APP_SCORE1_TO_GOODS_RATIO'] = df['EXT_SOURCE_1'] / df['AMT_GOODS_PRICE']
+    df['APP_SCORE1_TO_CREDIT_RATIO'] = df['EXT_SOURCE_1'] / df['AMT_CREDIT']
+    df['APP_SCORE1_TO_SCORE2_RATIO'] = df['EXT_SOURCE_1'] / df['EXT_SOURCE_2']
     df['APP_SCORE1_TO_SCORE3_RATIO'] = df['EXT_SOURCE_1'] / df['EXT_SOURCE_3']
+
+    df['APP_SCORE2_TO_CREDIT_RATIO'] = df['EXT_SOURCE_2'] / df['AMT_CREDIT']
     df['APP_SCORE2_TO_REGION_RATING_RATIO'] = df['EXT_SOURCE_2'] / df['REGION_RATING_CLIENT']
     df['APP_SCORE2_TO_CITY_RATING_RATIO'] = df['EXT_SOURCE_2'] / df['REGION_RATING_CLIENT_W_CITY']
     df['APP_SCORE2_TO_POP_RATIO'] = df['EXT_SOURCE_2'] / df['REGION_POPULATION_RELATIVE']
+    df['APP_SCORE2_TO_PHONE_CHANGE_RATIO'] = df['EXT_SOURCE_2'] / df['DAYS_LAST_PHONE_CHANGE']
+
+    df['APP_SCORE3_TO_BIRTH_RATIO'] = df['EXT_SOURCE_3'] / (df['DAYS_BIRTH'] / 365.25)
 
     # DOCUMENT
     doc_cols = [col for col in df.columns if '_DOCUMENT_' in col]
@@ -77,7 +146,7 @@ def application_train_test(train_df, test_df, nan_as_category=False):
     df.drop(columns=doc_cols, inplace=True)
 
     # HOUSING FEATURES
-    housing_info_cols = [col for col in df.columns if '_AVG' in col or '_MODE' in col or '_MEDI' in col]
+    housing_info_cols = [col for col in df.columns if df[col].dtype != 'object' and ('_AVG' in col or '_MODE' in col or '_MEDI' in col)]
     housing_info_cols.sort()
     i, j = 0, 1
     while i < len(housing_info_cols) and j < len(housing_info_cols):
@@ -104,11 +173,23 @@ def application_train_test(train_df, test_df, nan_as_category=False):
     df['APP_REGION_ALL_NOT_EQ'] = df['REG_REGION_NOT_LIVE_REGION'] + df['REG_REGION_NOT_WORK_REGION'] + df['LIVE_REGION_NOT_WORK_REGION']
     df['APP_CITY_ALL_NOT_EQ'] = df['REG_CITY_NOT_LIVE_CITY'] + df['REG_CITY_NOT_WORK_CITY'] + df['LIVE_CITY_NOT_WORK_CITY']
 
+    df['APP_CNT_CHILD_TO_BIRTH_RATIO'] = df['CNT_CHILDREN'] / df['DAYS_BIRTH']
+    df['APP_CNT_CHILD_TO_REG_RATIO'] = df['CNT_CHILDREN'] / df['DAYS_REGISTRATION']
+
+    # CONTACT INFO
     contact_cols = ['FLAG_MOBIL', 'FLAG_EMP_PHONE', 'FLAG_WORK_PHONE', 'FLAG_CONT_MOBILE', 'FLAG_PHONE', 'FLAG_EMAIL']
     df['APP_CONTACT_ALL_CNT'] = df[contact_cols].sum(axis=1)
 
+    # SOCIAL CIRCLE
     df['APP_DEF_TO_OBS_RATIO_30'] = df['DEF_30_CNT_SOCIAL_CIRCLE'] / df['OBS_30_CNT_SOCIAL_CIRCLE']
     df['APP_DEF_TO_OBS_RATIO_60'] = df['DEF_60_CNT_SOCIAL_CIRCLE'] / df['OBS_60_CNT_SOCIAL_CIRCLE']
+    df['APP_60_TO_30_RATIO_OBS'] = df['OBS_60_CNT_SOCIAL_CIRCLE'] / df['OBS_30_CNT_SOCIAL_CIRCLE']
+    df['APP_60_TO_30_RATIO_DEF'] = df['DEF_60_CNT_SOCIAL_CIRCLE'] / df['DEF_30_CNT_SOCIAL_CIRCLE']
+
+    df['APP_DEF_SUB_OBS_30'] = df['DEF_30_CNT_SOCIAL_CIRCLE'] - df['OBS_30_CNT_SOCIAL_CIRCLE']
+    df['APP_DEF_SUB_OBS_60'] = df['DEF_60_CNT_SOCIAL_CIRCLE'] - df['OBS_60_CNT_SOCIAL_CIRCLE']
+    df['APP_60_SUB_30_OBS'] = df['OBS_60_CNT_SOCIAL_CIRCLE'] - df['OBS_30_CNT_SOCIAL_CIRCLE']
+    df['APP_60_SUB_30_DEF'] = df['DEF_60_CNT_SOCIAL_CIRCLE'] - df['DEF_30_CNT_SOCIAL_CIRCLE']
 
     # REQ AMT
     df['APP_REQ_WEEK_GT_MON'] = (df['AMT_REQ_CREDIT_BUREAU_WEEK'] > df['AMT_REQ_CREDIT_BUREAU_YEAR']).astype('float')
@@ -127,17 +208,38 @@ def application_train_test(train_df, test_df, nan_as_category=False):
     df['APP_CUM_REQ_MON_TO_QRT_RATIO'] = df['APP_CUM_REQ_MON'] / df['APP_CUM_REQ_QRT']
     df['APP_CUM_REQ_MON_TO_YEAR_RATIO'] = df['APP_CUM_REQ_MON'] / df['APP_CUM_REQ_YEAR']
 
-    # Categorical features with One-Hot encode
-    df, _ = one_hot_encoding(df, nan_as_category)
+    # DO SOME AGGREGATION
+    by_cols = [
+        ('CODE_GENDER', 'FLAG_OWN_CAR', 'FLAG_OWN_REALTY', 'NAME_HOUSING_TYPE', 'WALLSMATERIAL_MODE', 'HOUSETYPE_MODE', 'EMERGENCYSTATE_MODE', 'FONDKAPREMONT_MODE'),
+        ('CODE_GENDER', 'NAME_INCOME_TYPE', 'NAME_CONTRACT_TYPE'),
+        ('CODE_GENDER', 'NAME_TYPE_SUITE', 'NAME_HOUSING_TYPE', 'NAME_FAMILY_STATUS', 'CNT_CHILDREN'),
+        ('CODE_GENDER', 'OCCUPATION_TYPE', 'NAME_EDUCATION_TYPE', 'ORGANIZATION_TYPE', 'NAME_INCOME_TYPE'),
+        ]
+    on_cols = ['APP_CREDIT_TO_ANNUITY_RATIO', 'DAYS_BIRTH', 'APP_SCORE1_TO_BIRTH_RATIO', 'APP_ANNUITY_TO_INCOME_RATIO', 'AMT_INCOME_TOTAL']
+
+    df = batch_agg(df, by_cols, on_cols, prefix='AGG_APP_')
+    # df.drop(columns=level_cols, inplace=True)
     return df
 
 
 def bureau_and_balance(bureau, bb, nan_as_category=True):
+    # correct anomalies
+    bureau.loc[bureau['DAYS_CREDIT_ENDDATE'] < -20000, 'DAYS_CREDIT_ENDDATE'] = np.nan
+    bureau.loc[bureau['DAYS_ENDDATE_FACT'] < -20000, 'DAYS_ENDDATE_FACT'] = np.nan
+    bureau.loc[bureau['DAYS_CREDIT_UPDATE'] < -20000, 'DAYS_ENDDATE_FACT'] = np.nan
+
+    #####################
+    ### process on bb ###
+    #####################
+    # manual feature - has status changed over the records?
     def see_change(x):
         return x.nunique() > 1
 
     bb_agg = bb.groupby('SK_ID_BUREAU')[['STATUS']].\
                 agg(see_change).rename(columns={'STATUS': 'STATUS_CHANGE'}).astype('float')
+
+    for i in range(1, 6):
+        bb[bb['STATUS'] == str(i)]['STATUS'] = 'PASS_DUE'
 
     # get the latest status for a certain bureau id
     def find_lateset_status(df):
@@ -172,16 +274,38 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     del bb_agg
     gc.collect()
 
-
+    #########################
+    ### process on bureau ###
+    #########################
     # procesing on DAYS related features
+    bureau['DAYS_CREDIT_SUB_UPDATE'] = bureau['DAYS_CREDIT'] - bureau['DAYS_CREDIT_UPDATE']
     bureau['DAYS_CREDIT_TO_UPDATE_RATIO'] = (bureau['DAYS_CREDIT'] - 1) / (bureau['DAYS_CREDIT_UPDATE'] - 1)
-    bureau['DAYS_FACT_TO_ENDDATE_RATIO'] = bureau['DAYS_ENDDATE_FACT'] / bureau['DAYS_CREDIT_ENDDATE']
-    bureau['IS_FACT_LT_ENDDATE'] = (bureau['DAYS_ENDDATE_FACT'] < bureau['DAYS_CREDIT_ENDDATE']).astype('float')
+
+    bureau['DAYS_ENDDATE_SUB_UPDATE'] = bureau['DAYS_CREDIT_ENDDATE'] - bureau['DAYS_CREDIT_UPDATE']
+    bureau['DAYS_ENDDATE_TO_UPDATE_RATIO'] = (bureau['DAYS_CREDIT_ENDDATE'] - 1) / (bureau['DAYS_CREDIT_UPDATE'] - 1)
+
+    bureau['DAYS_FACT_SUB_ENDDATE'] = bureau['DAYS_ENDDATE_FACT'] - bureau['DAYS_CREDIT_ENDDATE']
+    bureau['DAYS_FACT_SUB_UPDATE'] = bureau['DAYS_ENDDATE_FACT'] - bureau['DAYS_CREDIT_UPDATE']
+    bureau['DAYS_FACT_TO_UPDATE_RATIO'] = bureau['DAYS_ENDDATE_FACT'] / bureau['DAYS_CREDIT_UPDATE']
+
+    bureau['IS_EARLY_PAID'] = (bureau['DAYS_ENDDATE_FACT'] < bureau['DAYS_CREDIT_ENDDATE']).astype('float')
+    bureau['IS_LATER_PAID'] = (bureau['DAYS_ENDDATE_FACT'] > bureau['DAYS_CREDIT_ENDDATE']).astype('float')
+
+    bureau['PLAN_TIME_SPAN'] = bureau['DAYS_ENDDATE_FACT'] - bureau['DAYS_CREDIT']
+    bureau['ACTUAL_TIME_SPAN'] = bureau['DAYS_CREDIT_ENDDATE'] - bureau['DAYS_CREDIT']
+    bureau['ACTUAL_TIME_SPAN_TO_PLAN_RATIO'] = bureau['ACTUAL_TIME_SPAN'] / bureau['PLAN_TIME_SPAN']
+
+    bureau['DAYS_FACT_SUB_UPDATE_TO_ACTUAL_TIME_SPAN_RATIO'] = bureau['DAYS_FACT_SUB_UPDATE'] / bureau['ACTUAL_TIME_SPAN']
+    bureau['DAYS_ENDDATE_SUB_UPDATE_TO_PLAN_TIME_SPAN_RATIO'] = bureau['DAYS_FACT_SUB_UPDATE'] / bureau['PLAN_TIME_SPAN']
+
     # this means a client applied for a loan in homeCredit before his original creditBureau loan ended
     bureau['DAYS_ENDDATE_TO_DAYS_CREDIT_RATIO'] = bureau['DAYS_CREDIT_ENDDATE'] / bureau['DAYS_CREDIT']
     bureau['DAYS_OVERDUE_TO_CREDIT_RATIO'] = -1 * bureau['CREDIT_DAY_OVERDUE'] / bureau['DAYS_CREDIT']
-    bureau['IS_ENDDATE_GT_CREDIT'] = (bureau['DAYS_CREDIT_ENDDATE'] > bureau['DAYS_CREDIT']).astype('float')
+    bureau['DAYS_OVERDUE_TO_PLAN_TIME_SPAN_RATIO'] = bureau['CREDIT_DAY_OVERDUE'] / bureau['PLAN_TIME_SPAN']
+    bureau['DAYS_OVERDUE_TO_ACTUAL_TIME_SPAN_RATIO'] = bureau['CREDIT_DAY_OVERDUE'] / bureau['ACTUAL_TIME_SPAN']
 
+    # this feature means a user have paid his loan before he applied
+    bureau['IS_UNTRUSTWORTHY'] = (bureau['DAYS_CREDIT_ENDDATE'] < bureau['DAYS_CREDIT']).astype('float')
     bureau['IS_END_IN_FUTURE'] = (bureau['DAYS_CREDIT_ENDDATE'] > 0).astype('float')
     bureau['IS_OLD_UPDATE'] = (bureau['DAYS_CREDIT_UPDATE'] < -365).astype('float')
 
@@ -210,7 +334,14 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     bureau['AMT_DEBT_TO_CREDIT_RATIO'] = bureau['AMT_CREDIT_SUM_DEBT'] / bureau['AMT_CREDIT_SUM']
     bureau['AMT_LIMIT_TO_CREDIT_RATIO'] = bureau['AMT_CREDIT_SUM_LIMIT'] / bureau['AMT_CREDIT_SUM']
     bureau['AMT_MAX_OVERDUE_TO_CREDIT_RATIO'] = bureau['AMT_CREDIT_MAX_OVERDUE'] / bureau['AMT_CREDIT_SUM']
+
     bureau['AMT_ANNUITY_TO_CREDIT_RATIO'] = bureau['AMT_ANNUITY'] / bureau['AMT_CREDIT_SUM']
+    bureau['AMT_ANNUITY_TO_DEBT_RATIO'] = bureau['AMT_ANNUITY'] / bureau['AMT_CREDIT_SUM_DEBT']
+
+    bureau['AVG_ANNUITY_BY_MONTH'] = bureau['AMT_ANNUITY'] / bureau['MONTHS_BALANCE_SIZE']
+    bureau['AVG_CREDIT_BY_MONTH'] = bureau['AMT_CREDIT_SUM'] / bureau['MONTHS_BALANCE_SIZE']
+    bureau['AVG_DEBT_BY_MONTH'] = bureau['AMT_CREDIT_SUM_DEBT'] / bureau['MONTHS_BALANCE_SIZE']
+    bureau['AVG_LIMIT_BY_MONTH'] = bureau['AMT_CREDIT_SUM_LIMIT'] / bureau['MONTHS_BALANCE_SIZE']
 
     bureau['IS_DEBT_NEG'] = (bureau['AMT_CREDIT_SUM_DEBT'] < 0).astype('float')
     bureau['IS_LIMIT_NEG'] = (bureau['AMT_CREDIT_SUM_DEBT'] < 0).astype('float')
@@ -227,8 +358,13 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     temp = temp.apply(lambda x: x.sort_values(['DAYS_CREDIT'], ascending=False)).reset_index(drop=True)
 
     temp['DAYS_CREDIT'] = -1 * temp['DAYS_CREDIT']
-    bureau_agg['BURO_DAYS_DIFF'] = temp.groupby('SK_ID_CURR')['DAYS_CREDIT'].diff()
+    temp['DAYS_DIFF'] = temp.groupby('SK_ID_CURR')['DAYS_CREDIT'].diff()
+    bureau_agg['BURO_DAYS_DIFF_MAX'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].max()
+    bureau_agg['BURO_DAYS_DIFF_MIN'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].min()
+    bureau_agg['BURO_DAYS_DIFF_MEAN'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].mean()
 
+    # APP TIME SPAN
+    bureau_agg['BURO_ALL_CREDIT_TIME_SPAN'] = temp.groupby('SK_ID_CURR')['DAYS_CREDIT'].agg(lambda x: x.max() - x.min())
 
     bureau, bureau_cat = one_hot_encoding(bureau, nan_as_category)
 
@@ -250,14 +386,32 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
         'CNT_CREDIT_PROLONG': ['sum', 'mean', 'min', 'max'],
 
         # Manual Features on DAYS
+        'DAYS_CREDIT_SUB_UPDATE': ['mean', 'min', 'max', 'sum'],
         'DAYS_CREDIT_TO_UPDATE_RATIO': ['mean', 'min', 'max'],
-        'DAYS_FACT_TO_ENDDATE_RATIO': ['mean', 'min', 'max'],
-        'IS_FACT_LT_ENDDATE': ['mean', 'sum'],
+        'DAYS_ENDDATE_SUB_UPDATE': ['mean', 'min', 'max', 'sum'],
+        'DAYS_ENDDATE_TO_UPDATE_RATIO': ['mean', 'min', 'max'],
+
+
+        'DAYS_FACT_SUB_ENDDATE': ['mean', 'min', 'max', 'sum'],
+        'DAYS_FACT_SUB_UPDATE': ['mean', 'min', 'max', 'sum'],
+        'DAYS_FACT_TO_UPDATE_RATIO': ['mean', 'min', 'max'],
+
+        'IS_EARLY_PAID': ['mean', 'sum'],
+        'IS_LATER_PAID': ['mean', 'sum'],
+
+        'PLAN_TIME_SPAN': ['mean', 'min', 'max', 'sum'],
+        'ACTUAL_TIME_SPAN': ['mean', 'min', 'max', 'sum'],
+        'ACTUAL_TIME_SPAN_TO_PLAN_RATIO': ['mean', 'min', 'max'],
+
+        'DAYS_FACT_SUB_UPDATE_TO_ACTUAL_TIME_SPAN_RATIO': ['mean', 'min', 'max'],
+        'DAYS_ENDDATE_SUB_UPDATE_TO_PLAN_TIME_SPAN_RATIO': ['mean', 'min', 'max'],
 
         'DAYS_ENDDATE_TO_DAYS_CREDIT_RATIO': ['mean', 'min', 'max'],
         'DAYS_OVERDUE_TO_CREDIT_RATIO': ['mean', 'min', 'max'],
-        'IS_ENDDATE_GT_CREDIT': ['mean', 'sum'],
+        'DAYS_OVERDUE_TO_PLAN_TIME_SPAN_RATIO': ['mean', 'min', 'max'],
+        'DAYS_OVERDUE_TO_ACTUAL_TIME_SPAN_RATIO': ['mean', 'min', 'max'],
 
+        'IS_UNTRUSTWORTHY': ['mean', 'sum'],
         'IS_END_IN_FUTURE': ['mean', 'sum'],
         'IS_OLD_UPDATE': ['mean', 'sum'],
 
@@ -267,7 +421,14 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
         'AMT_DEBT_TO_CREDIT_RATIO': ['mean', 'min', 'max'],
         'AMT_LIMIT_TO_CREDIT_RATIO': ['mean', 'min', 'max'],
         'AMT_MAX_OVERDUE_TO_CREDIT_RATIO': ['mean', 'min', 'max'],
+
         'AMT_ANNUITY_TO_CREDIT_RATIO': ['mean', 'min', 'max'],
+        'AMT_ANNUITY_TO_DEBT_RATIO': ['mean', 'min', 'max'],
+
+        'AVG_ANNUITY_BY_MONTH': ['mean', 'min', 'max'],
+        'AVG_CREDIT_BY_MONTH': ['mean', 'min', 'max'],
+        'AVG_DEBT_BY_MONTH': ['mean', 'min', 'max'],
+        'AVG_LIMIT_BY_MONTH': ['mean', 'min', 'max'],
 
         'IS_DEBT_NEG': ['mean', 'sum'],
         'IS_LIMIT_NEG': ['mean', 'sum'],
@@ -293,9 +454,30 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     del bureau_agg_auto
     gc.collect()
 
+    bureau_agg['BURO_DAYS_DIFF_MEAN_TO_ACTUAL_TIME_SPAN_MEAN_RATIO'] = bureau_agg['BURO_DAYS_DIFF_MEAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_MEAN']
+    bureau_agg['BURO_DAYS_DIFF_MEAN_TO_ACTUAL_TIME_SPAN_SUM_RATIO'] = bureau_agg['BURO_DAYS_DIFF_MEAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_MEAN']
+    bureau_agg['BURO_ALL_CREDIT_TIME_SPAN_TO_ACUTAL_TIME_SPAN_SUM_RATIO'] = bureau_agg['BURO_ALL_CREDIT_TIME_SPAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_SUM']
+
+    bureau_agg['BURO_AMT_CREDIT_SUM_SUM_TO_LIMIT_SUM_RATIO'] = bureau_agg['BURO_AMT_CREDIT_SUM_SUM'] / bureau_agg['BURO_AMT_CREDIT_SUM_LIMIT_SUM']
+    bureau_agg['BURO_AMT_CREDIT_SUM_SUM_TO_DEBT_SUM_RATIO'] = bureau_agg['BURO_AMT_CREDIT_SUM_SUM'] / bureau_agg['BURO_AMT_CREDIT_SUM_DEBT_SUM']
+    bureau_agg['BURO_AMT_CREDIT_SUM_SUM_TO_MAX_OVERDUE_SUM_RATIO'] = bureau_agg['BURO_AMT_CREDIT_SUM_SUM'] / bureau_agg['BURO_AMT_CREDIT_MAX_OVERDUE_SUM']
+    bureau_agg['BURO_AMT_CREDIT_SUM_SUM_TO_CREDIT_SUM_OVERDUE_SUM_RATIO'] = bureau_agg['BURO_AMT_CREDIT_SUM_SUM'] / bureau_agg['BURO_AMT_CREDIT_SUM_OVERDUE_SUM']
+    bureau_agg['BURO_AMT_CREDIT_SUM_SUM_TO_ANNUITYE_SUM_RATIO'] = bureau_agg['BURO_AMT_CREDIT_SUM_SUM'] / bureau_agg['BURO_AMT_ANNUITY_SUM']
+
+    bureau_agg['BURO_AVG_CREDIT_ON_BUREAU_BALANCE_REC'] = bureau_agg['BURO_AMT_CREDIT_SUM_SUM'] / bureau_agg['BURO_MONTHS_BALANCE_SIZE_SUM']
+    bureau_agg['BURO_AVG_LIMIT_ON_BUREAU_BALANCE_REC'] = bureau_agg['BURO_AMT_CREDIT_SUM_LIMIT_SUM'] / bureau_agg['BURO_MONTHS_BALANCE_SIZE_SUM']
+    bureau_agg['BURO_AVG_DEBT_ON_BUREAU_BALANCE_REC'] = bureau_agg['BURO_AMT_CREDIT_SUM_DEBT_SUM'] / bureau_agg['BURO_MONTHS_BALANCE_SIZE_SUM']
+    bureau_agg['BURO_AVG_MAX_OVERDUE_ON_BUREAU_BALANCE_REC'] = bureau_agg['BURO_AMT_CREDIT_MAX_OVERDUE_SUM'] / bureau_agg['BURO_MONTHS_BALANCE_SIZE_SUM']
+    bureau_agg['BURO_AVG_OVERDUE_ON_BUREAU_BALANCE_REC'] = bureau_agg['BURO_AMT_CREDIT_SUM_OVERDUE_SUM'] / bureau_agg['BURO_MONTHS_BALANCE_SIZE_SUM']
+    bureau_agg['BURO_AVG_ANNUITY_ON_BUREAU_BALANCE_REC'] = bureau_agg['BURO_AMT_ANNUITY_SUM'] / bureau_agg['BURO_MONTHS_BALANCE_SIZE_SUM']
+
+    bureau_agg['BURO_AVG_PROLONG_CREDIT'] = bureau_agg['BURO_AMT_CREDIT_SUM_SUM'] / bureau_agg['BURO_CNT_CREDIT_PROLONG_SUM']
+    bureau_agg['BURO_AVG_PROLONG_ANNUITY'] = bureau_agg['BURO_AMT_ANNUITY_SUM'] / bureau_agg['BURO_CNT_CREDIT_PROLONG_SUM']
+    bureau_agg['BURO_AVG_PROLONG_CREDIT_OVERDUE'] = bureau_agg['BURO_AMT_CREDIT_SUM_OVERDUE_SUM'] / bureau_agg['BURO_CNT_CREDIT_PROLONG_SUM']
+
     # Bureau: Active credits
     active = bureau[bureau['CREDIT_ACTIVE_Active'] == 1]
-    active_agg = active.groupby('SK_ID_CURR').agg({**num_aggregations, **cat_aggregations})
+    active_agg = active.groupby('SK_ID_CURR').agg({**num_aggregations})
     active_agg.columns = pd.Index(['ACTIVE_' + e[0] + "_" + e[1].upper() for e in active_agg.columns.tolist()])
     bureau_agg = bureau_agg.join(active_agg, how='left', on='SK_ID_CURR')
     del active, active_agg
@@ -303,24 +485,26 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
 
     # Bureau: Closed credits
     closed = bureau[bureau['CREDIT_ACTIVE_Closed'] == 1]
-    closed_agg = closed.groupby('SK_ID_CURR').agg({**num_aggregations, **cat_aggregations})
+    closed_agg = closed.groupby('SK_ID_CURR').agg({**num_aggregations})
     closed_agg.columns = pd.Index(['CLOSED_' + e[0] + "_" + e[1].upper() for e in closed_agg.columns.tolist()])
     bureau_agg = bureau_agg.join(closed_agg, how='left', on='SK_ID_CURR')
-    del closed, closed_agg,
+    del closed, closed_agg
+    gc.collect()
 
     # Bureau: future credits
     future = bureau[bureau['IS_END_IN_FUTURE'] == 1]
-    future_agg = future.groupby('SK_ID_CURR').agg({**num_aggregations, **cat_aggregations})
+    future_agg = future.groupby('SK_ID_CURR').agg({**num_aggregations})
     future_agg.columns = pd.Index(['FUTURE_' + e[0] + "_" + e[1].upper() for e in future_agg.columns.tolist()])
     bureau_agg = bureau_agg.join(future_agg, how='left', on='SK_ID_CURR')
     del future, future_agg
-
     gc.collect()
+
     return bureau_agg
 
 
 def previous_applications(prev, nan_as_category=True):
     # Days 365.243 values -> nan
+    prev.loc[prev['AMT_DOWN_PAYMENT'] < 0, 'AMT_DOWN_PAYMENT'] = np.nan
     prev['DAYS_FIRST_DRAWING'].replace(365243, np.nan, inplace=True)
     prev['DAYS_FIRST_DUE'].replace(365243, np.nan, inplace=True)
     prev['DAYS_LAST_DUE_1ST_VERSION'].replace(365243, np.nan, inplace=True)
@@ -329,15 +513,22 @@ def previous_applications(prev, nan_as_category=True):
     prev['FLAG_LAST_APPL_PER_CONTRACT'], _ = pd.factorize(prev['FLAG_LAST_APPL_PER_CONTRACT'])
 
     # handle on AMT features
+    prev['APP_TO_ANNUITY_RATIO'] = prev['AMT_APPLICATION'] / prev['AMT_ANNUITY']
     prev['APP_TO_CREDIT_RATIO'] = prev['AMT_APPLICATION'] / prev['AMT_CREDIT']
-    prev['ANNUITY_TO_CREDIT_RATIO'] = prev['AMT_ANNUITY'] / prev['AMT_CREDIT']
-    # there is still some tiny difference between DOWN_TO_CREDIT & RATE_DOWN_PAYMENT
-    # so we just keep it
-    prev['DOWN_TO_CREDIT_RATIO'] = prev['AMT_DOWN_PAYMENT'] / prev['AMT_CREDIT']
-    prev['PRICE_TO_CREDIT_RATIO'] = prev['AMT_GOODS_PRICE'] / prev['AMT_CREDIT']
-    prev['PRICE_TO_APP_RATIO'] = prev['AMT_GOODS_PRICE'] / prev['AMT_APPLICATION']
-    prev['DOWN_TO_APP_RATIO'] = prev['AMT_DOWN_PAYMENT'] / prev['AMT_APPLICATION']
+    prev['APP_TO_DOWN_RATIO'] = prev['AMT_APPLICATION'] / prev['AMT_DOWN_PAYMENT']
+    prev['APP_TO_PRICE_RATIO'] = prev['AMT_APPLICATION'] / prev['AMT_GOODS_PRICE']
 
+    prev['ANNUITY_TO_CREDIT_RATIO'] = prev['AMT_ANNUITY'] / prev['AMT_CREDIT']
+    prev['ANNUITY_TO_DOWN_RATIO'] = prev['AMT_ANNUITY'] / prev['AMT_DOWN_PAYMENT']
+    prev['ANNUITY_TO_PRICE_RATIO'] = prev['AMT_ANNUITY'] / prev['AMT_GOODS_PRICE']
+
+    prev['CREDIT_TO_DOWN_RATIO'] = prev['AMT_CREDIT'] / prev['AMT_DOWN_PAYMENT']
+    prev['CREDIT_TO_PRICE_RATIO'] = prev['AMT_CREDIT'] / prev['AMT_GOODS_PRICE']
+
+    prev['DOWN_TO_PRICE_RATIO'] = prev['AMT_DOWN_PAYMENT'] / prev['AMT_GOODS_PRICE']
+    prev['APP_SUB_CREDIT'] = prev['AMT_APPLICATION'] - prev['AMT_CREDIT']
+
+    # AVG AMT
     prev['AVG_PAYMENT_AMT_CREDIT'] = prev['AMT_CREDIT'] / prev['CNT_PAYMENT']
     prev['AVG_PAYMENT_AMT_ANNUITY'] = prev['AMT_ANNUITY'] / prev['CNT_PAYMENT']
     prev['AVG_PAYMENT_TOTAL'] = prev['AVG_PAYMENT_AMT_CREDIT'] + prev['AVG_PAYMENT_AMT_ANNUITY']
@@ -366,6 +557,44 @@ def previous_applications(prev, nan_as_category=True):
     prev['IS_SELLERPLACE_AREA_MINUS_1'] = (prev['SELLERPLACE_AREA'] == -1).astype('float')
     prev['IS_SELLERPLACE_AREA_ZERO'] = (prev['SELLERPLACE_AREA'] == 0).astype('float')
 
+    # DO SOME AGG
+    prev['IS_X_SELL'] = (prev['NAME_PRODUCT_TYPE'] == 'x-sell').astype('float')
+    prev['IS_WALK_IN'] = (prev['NAME_PRODUCT_TYPE'] == 'walk-in').astype('float')
+    prev['IS_APPROVED'] = (prev['NAME_CONTRACT_STATUS'] == 'Approved').astype('float')
+    prev['IS_REFUSED'] = (prev['NAME_CONTRACT_STATUS'] == 'Refused').astype('float')
+
+    by_cols = [
+        ('NAME_CONTRACT_TYPE', 'NAME_PAYMENT_TYPE', 'NAME_PORTFOLIO', 'NAME_YIELD_GROUP'),
+        ('NAME_CASH_LOAN_PURPOSE', 'NAME_GOODS_CATEGORY', 'CHANNEL_TYPE', 'NAME_SELLER_INDUSTRY'),
+        ('WEEKDAY_APPR_PROCESS_START', 'HOUR_APPR_PROCESS_START', 'NAME_TYPE_SUITE', 'NAME_CLIENT_TYPE'),
+    ]
+
+    on_cols = [
+        'IS_X_SELL',
+        'IS_WALK_IN',
+        'IS_APPROVED',
+        'IS_REFUSED',
+    ]
+
+    by_cols_2 = [
+        ('NAME_CONTRACT_TYPE', 'NAME_PAYMENT_TYPE', 'NAME_PORTFOLIO', 'NAME_YIELD_GROUP', 'NAME_CONTRACT_STATUS', 'NAME_PRODUCT_TYPE'),
+        ('NAME_CASH_LOAN_PURPOSE', 'NAME_GOODS_CATEGORY', 'CHANNEL_TYPE', 'NAME_SELLER_INDUSTRY', 'NAME_CONTRACT_STATUS', 'NAME_PRODUCT_TYPE'),
+        ('WEEKDAY_APPR_PROCESS_START', 'HOUR_APPR_PROCESS_START', 'NAME_TYPE_SUITE', 'NAME_CLIENT_TYPE', 'NAME_CONTRACT_STATUS', 'NAME_PRODUCT_TYPE'),
+        ('PRODUCT_COMBINATION', 'NAME_GOODS_CATEGORY', 'NAME_CASH_LOAN_PURPOSE', 'NAME_CONTRACT_STATUS'),
+    ]
+
+    on_cols_2 = [
+        'AVG_TOTAL_PAYMENT_BY_DAY',
+        'ACTUAL_TIME_SPAN',
+        'IS_LATER_PAID',
+        'IS_EARLY_PAID',
+        'AVG_PAYMENT_TOTAL',
+        'APP_TO_PRICE_RATIO',
+    ]
+
+    prev = batch_agg(prev, by_cols, on_cols)
+    prev = batch_agg(prev, by_cols_2, on_cols_2)
+
     def app_diversity_on_cate_cols(df, process_info):
         ret = df.groupby('SK_ID_CURR')['SK_ID_PREV'].count().\
             reset_index().\
@@ -382,8 +611,18 @@ def previous_applications(prev, nan_as_category=True):
 
         return ret
 
-    diversity_df = app_diversity_on_cate_cols(
-        prev, [col for col in prev.columns if prev[col].dtype == 'object'])
+    prev_agg = app_diversity_on_cate_cols(
+        prev, [col for col in prev.columns if prev[col].dtype == 'object']).set_index('SK_ID_CURR')
+
+    # PREVIOUS APP INTERVAL
+    temp = prev[['DAYS_TERMINATION', 'SK_ID_CURR']].groupby('SK_ID_CURR')
+    temp = temp.apply(lambda x: x.sort_values(['DAYS_TERMINATION'], ascending=False)).reset_index(drop=True)
+    temp['DAYS_DIFF'] = temp.groupby('SK_ID_CURR')['DAYS_TERMINATION'].diff()
+
+    prev_agg['PREV_DAYS_DIFF_MAX'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].max()
+    prev_agg['PREV_DAYS_DIFF_MIN'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].min()
+    prev_agg['PREV_DAYS_DIFF_MEAN'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].mean()
+
     prev, cat_cols = one_hot_encoding(prev, nan_as_category)
 
     # AGG TO SK_ID_CURR
@@ -414,17 +653,27 @@ def previous_applications(prev, nan_as_category=True):
         'DAYS_TERMINATION': ['min', 'max'],
 
         # manual features
+        # AMT
+        'APP_TO_ANNUITY_RATIO': ['mean', 'min', 'max'],
         'APP_TO_CREDIT_RATIO': ['mean', 'min', 'max'],
+        'APP_TO_DOWN_RATIO': ['mean', 'min', 'max'],
+        'APP_TO_PRICE_RATIO': ['mean', 'min', 'max'],
+
         'ANNUITY_TO_CREDIT_RATIO': ['mean', 'min', 'max'],
-        'DOWN_TO_CREDIT_RATIO': ['mean', 'min', 'max'],
-        'PRICE_TO_CREDIT_RATIO': ['mean', 'min', 'max'],
-        'PRICE_TO_APP_RATIO': ['mean', 'min', 'max'],
-        'DOWN_TO_APP_RATIO': ['mean', 'min', 'max'],
+        'ANNUITY_TO_DOWN_RATIO': ['mean', 'min', 'max'],
+        'ANNUITY_TO_PRICE_RATIO': ['mean', 'min', 'max'],
 
-        'AVG_PAYMENT_AMT_CREDIT': ['mean', 'min', 'max'],
-        'AVG_PAYMENT_AMT_ANNUITY': ['mean', 'min', 'max'],
-        'AVG_PAYMENT_TOTAL': ['mean', 'min', 'max'],
+        'CREDIT_TO_DOWN_RATIO': ['mean', 'min', 'max'],
+        'CREDIT_TO_PRICE_RATIO': ['mean', 'min', 'max'],
 
+        'DOWN_TO_PRICE_RATIO': ['mean', 'min', 'max'],
+        'APP_SUB_CREDIT': ['mean', 'sum', 'min', 'max'],
+
+        'AVG_PAYMENT_AMT_CREDIT': ['mean', 'sum', 'min', 'max'],
+        'AVG_PAYMENT_AMT_ANNUITY': ['mean', 'sum', 'min', 'max'],
+        'AVG_PAYMENT_TOTAL': ['mean', 'sum', 'min', 'max'],
+
+        # DAYS
         'PLAN_TIME_SPAN': ['mean', 'sum', 'min', 'max'],
         'ACTUAL_TIME_SPAN': ['mean', 'sum', 'min', 'max'],
         'LAST_DUE_DIFF': ['mean', 'sum', 'min', 'max'],
@@ -446,33 +695,51 @@ def previous_applications(prev, nan_as_category=True):
         'IS_SELLERPLACE_AREA_ZERO': ['mean', 'sum'],
     }
 
+    agg_aggregations = {}
+    agg_cols = [col for col in prev.columns if 'MEAN_ON_' in col]
+    for agg in agg_cols:
+        agg_aggregations[agg] = 'median'
+
     # Previous applications categorical features
     cat_aggregations = {}
     for cat in cat_cols:
         cat_aggregations[cat] = ['mean', 'sum']
-    prev_agg = prev.groupby('SK_ID_CURR').agg(
-        {**num_aggregations, **cat_aggregations})
-    prev_agg.columns = pd.Index(
-        ['PREV_' + e[0] + "_" + e[1].upper() for e in prev_agg.columns.tolist()])
-    # add the diversity features
-    prev_agg = prev_agg.merge(diversity_df, on='SK_ID_CURR', how='left')
+    prev_agg_auto = prev.groupby('SK_ID_CURR').agg(
+        {**num_aggregations, **cat_aggregations, **agg_aggregations})
+    prev_agg_auto.columns = pd.Index(
+        ['PREV_' + e[0] + "_" + e[1].upper() for e in prev_agg_auto.columns.tolist()])
+
+    # join back to prev_agg
+    prev_agg = prev_agg.join(prev_agg_auto, on='SK_ID_CURR', how='left')
+    del prev_agg_auto
+    gc.collect()
 
     # Previous Applications: Approved Applications
     approved = prev[prev['NAME_CONTRACT_STATUS_Approved'] == 1]
-    approved_agg = approved.groupby('SK_ID_CURR').agg({**num_aggregations, **cat_aggregations})
+    approved_agg = approved.groupby('SK_ID_CURR').agg({**num_aggregations})
     approved_agg.columns = pd.Index(
         ['APPROVED_' + e[0] + "_" + e[1].upper() for e in approved_agg.columns.tolist()])
     prev_agg = prev_agg.join(approved_agg, how='left', on='SK_ID_CURR')
+    del approved, approved_agg
+    gc.collect()
 
     # Previous Applications: Refused Applications
     refused = prev[prev['NAME_CONTRACT_STATUS_Refused'] == 1]
-    refused_agg = refused.groupby('SK_ID_CURR').agg({**num_aggregations, **cat_aggregations})
+    refused_agg = refused.groupby('SK_ID_CURR').agg({**num_aggregations})
     refused_agg.columns = pd.Index(
         ['REFUSED_' + e[0] + "_" + e[1].upper() for e in refused_agg.columns.tolist()])
     prev_agg = prev_agg.join(refused_agg, how='left', on='SK_ID_CURR')
-    del refused, refused_agg, approved, approved_agg, prev, diversity_df
+    del refused, refused_agg
     gc.collect()
-    prev_agg.set_index('SK_ID_CURR', inplace=True)
+
+    # Previous Applications: X_SELL Applications
+    xSell = prev[prev['IS_X_SELL'] == 1]
+    xSell_agg = xSell.groupby('SK_ID_CURR').agg({**num_aggregations})
+    xSell_agg.columns = pd.Index(
+        ['XSELL_' + e[0] + "_" + e[1].upper() for e in xSell_agg.columns.tolist()])
+    prev_agg = prev_agg.join(xSell_agg, how='left', on='SK_ID_CURR')
+    del xSell, xSell_agg
+    gc.collect()
     return prev_agg
 
 
@@ -691,7 +958,7 @@ def credit_card_balance(cc, nan_as_category=True):
     return cc_agg
 
 
-def final_process(df):
+def final_process(df, nan_as_category=True):
     df['FINAL_BURO_DAYS_CREDIT_ENDDATE_MAX_TO_APP_DAYS_BIRTH_RATIO'] = df['BURO_DAYS_CREDIT_ENDDATE_MAX'] / df['DAYS_BIRTH']
     df['FINAL_BURO_DAYS_CREDIT_ENDDATE_MAX_TO_APP_DAYS_EMPLOYED_RATIO'] = df['BURO_DAYS_CREDIT_ENDDATE_MAX'] / df['DAYS_EMPLOYED']
     df['FINAL_BURO_DAYS_ENDDATE_FACT_MAX_TO_APP_DAYS_BIRTH_RATIO'] = df['BURO_DAYS_ENDDATE_FACT_MAX'] / df['DAYS_BIRTH']
@@ -711,7 +978,8 @@ def final_process(df):
     df['FINAL_APP_AMT_CREDIT_TO_PREV_CNT_PAYMENT_MEAN_RATIO'] = df['AMT_CREDIT'] / df['PREV_CNT_PAYMENT_MEAN']
     df['FINAL_APP_AMT_ANNUITY_TO_PREV_CNT_PAYMENT_MEAN_RATIO'] = df['AMT_ANNUITY'] / df['PREV_CNT_PAYMENT_MEAN']
     df['FINAL_PREV_PLAN_TIME_SPAN_MEAN_TO_APP_DAYS_EMPLOYED_RATIO'] = df['PREV_PLAN_TIME_SPAN_MEAN'] / df['DAYS_EMPLOYED']
-
+    df['FINAL_PREV_AVG_ANNUITY_BY_DAY_MEAN_TO_AMT_INCOME_TOTAL_RATIO'] = df['PREV_AVG_ANNUITY_BY_DAY_MEAN'] / df['AMT_INCOME_TOTAL']
+    df['FINAL_PREV_AVG_TOTAL_PAYMENT_BY_DAY_MEAN_TO_AMT_INCOME_TOTAL_RATIO'] = df['PREV_AVG_TOTAL_PAYMENT_BY_DAY_MEAN'] / df['AMT_INCOME_TOTAL']
 
     df['FINAL_INSTAL_AMT_INSTALMENT_SUM_TO_APP_CREDIT_RATIO'] = df['INSTAL_AMT_INSTALMENT_SUM'] / df['AMT_CREDIT']
     df['FINAL_INSTAL_AMT_INSTALMENT_SUM_TO_APP_AMT_ANNUITY_RATIO'] = df['INSTAL_AMT_INSTALMENT_SUM'] / df['AMT_ANNUITY']
@@ -723,11 +991,47 @@ def final_process(df):
     df['FINAL_RECENT_INSTAL_DBD_MAX_TO_APP_DAYS_EMPLOYED_RATIO'] = df['RECENT_INSTAL_DBD_MAX'] / df['DAYS_EMPLOYED']
 
     df['FINAL_POS_REC_COUNT_TO_APP_DAYS_EMPLOYED_RATIO'] = df['POS_REC_COUNT'] / df['DAYS_EMPLOYED']
+
+    # DO SOME AGGREGATION
+    by_cols = [
+        ('CODE_GENDER', 'NAME_INCOME_TYPE', 'NAME_CONTRACT_TYPE'),
+        ('CODE_GENDER', 'NAME_TYPE_SUITE', 'NAME_HOUSING_TYPE', 'NAME_FAMILY_STATUS', 'CNT_CHILDREN'),
+        ('CODE_GENDER', 'OCCUPATION_TYPE', 'NAME_EDUCATION_TYPE', 'ORGANIZATION_TYPE', 'NAME_INCOME_TYPE'),
+        ]
+
+    on_cols = [
+        'PREV_DAYS_LAST_DUE_1ST_VERSION_MAX',
+        'PREV_DAYS_TERMINATION_MAX',
+        'PREV_CREDIT_TO_PRICE_RATIO_MEAN',
+        'PREV_DAYS_DECISION_MAX',
+        'PREV_DAYS_DESICION_TO_FTRST_DUE_RATIO_MIN',
+
+        'BURO_DAYS_CREDIT_MAX',
+        'BURO_DAYS_DIFF_MEAN',
+        'BURO_AMT_CREDIT_SUM_MIN',
+        'BURO_DAYS_CREDIT_SUB_UPDATE_MEAN',
+        'BURO_AMT_DEBT_TO_CREDIT_RATIO_MAX',
+        'BURO_AMT_CREDIT_SUM_SUM_TO_LIMIT_SUM_RATIO',
+
+        'INSTAL_DBD_SUM',
+        'INSTAL_DPD_MEAN',
+        'INSTAL_DAYS_ENTRY_TO_INSTAL_RATIO_MIN',
+        'INSTAL_AMT_PAYMENT_SUB_INSTAL_MEAN',
+        'INSTALL_TIMES_MEAN',
+
+        'RECENT_INSTAL_AMT_INSTALMENT_MAX',
+        'RECENT_INSTAL_AMT_PAYMENT_MAX',
+        ]
+
+    df = batch_agg(df, by_cols, on_cols, 'AGG_FINAL_')
+
+    # Categorical features with One-Hot encode
+    df, _ = one_hot_encoding(df, nan_as_category)
     return df
 
 
 def feature_extract(debug, input_config):
-    num_rows = 30000 if debug else None
+    num_rows = 10000 if debug else None
 
     with timer("Process applications"):
         train_file = input_config['train_filepath']
@@ -737,7 +1041,6 @@ def feature_extract(debug, input_config):
         print("Train samples: {}, test samples: {}".format(len(train_df), len(test_df)))
         df = application_train_test(train_df, test_df)
         print("Applications df shape:", df.shape)
-
 
     with timer("Process bureau and bureau_balance"):
         bureau_balance_file = input_config['bureau_balance_filepath']
@@ -788,7 +1091,7 @@ def feature_extract(debug, input_config):
 
     with timer("Process Final Stage"):
         df = final_process(df)
-        # feature selection
+        # feature filter
         df.drop(columns=list(set(DROP_FEATS) & set(df.columns)), inplace=True)
 
     return df[df['TARGET'].notnull()], df[df['TARGET'].isnull()]

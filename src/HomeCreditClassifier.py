@@ -1,41 +1,75 @@
 from sklearn.metrics import roc_auc_score
 from copy import deepcopy
+from math import floor
+from xgboost.sklearn import XGBClassifier
+from lightgbm import LGBMClassifier
 import numpy as np
 import time
 import gc
 
 
 class KFoldClassifier:
-    def __init__(self, lgbClf, cv):
-        self.__lgbClfs = [deepcopy(lgbClf) for i in range(cv.n_splits)]
+    def __init__(self, clf, cv, feat_sample=1, sample_seed=0):
+        self.__clfs = [deepcopy(clf) for i in range(cv.n_splits)]
         self.__cv = cv
         self.__kfold_result = {}
+        self.__feat_sample_rate = feat_sample
+        self.__seed = sample_seed
+
+        if isinstance(clf, XGBClassifier):
+            self.__type = 'xgb'
+        elif isinstance(clf, LGBMClassifier):
+            self.__type = 'lgb'
+
+    def __feat_sample(self, cols):
+        np.random.seed(self.__seed)
+        if self.__feat_sample_rate < 1:
+            np.random.shuffle(cols)
+            x = floor(len(cols) * self.__feat_sample_rate)
+            return cols[:x]
+        else:
+            return cols
 
     def __fit_on_one_fold(self, X, y, on, **kwargs):
         """
         train One model using one specific fold in cv.
         on - indicate which fold the model is training on, start from 0.
         """
-        clf = self.__lgbClfs[on]
+        clf = self.__clfs[on]
         t0 = time.time()
         clf.fit(X, y, **kwargs)
         t1 = time.time()
         fold_result = {}
         fold_result['using_time'] = t1 - t0
-        fold_result['best_iteration'] = clf.best_iteration_
         fold_result['feature_importance'] = clf.feature_importances_
 
-        fold_result['best_score'] = {}
-        fold_result['best_score']['training'] = clf.best_score_[
-            'training']['auc']
-        fold_result['best_score']['valid'] = clf.best_score_[
-            'valid_1']['auc']
+        if self.__type == 'lgb':
+            fold_result['best_iteration'] = clf.best_iteration_
 
-        fold_result['evals_result'] = {}
-        fold_result['evals_result']['training'] = clf.evals_result_[
-            'training']['auc']
-        fold_result['evals_result']['valid'] = clf.evals_result_[
-            'valid_1']['auc']
+            fold_result['best_score'] = {}
+            fold_result['best_score']['training'] = clf.best_score_[
+                'training']['auc']
+            fold_result['best_score']['valid'] = clf.best_score_[
+                'valid_1']['auc']
+
+            fold_result['evals_result'] = {}
+            fold_result['evals_result']['training'] = clf.evals_result_[
+                'training']['auc']
+            fold_result['evals_result']['valid'] = clf.evals_result_[
+                'valid_1']['auc']
+
+        elif self.__type == 'xgb':
+            fold_result['best_score'] = {}
+            train_x, train_y = kwargs['eval_set'][0]
+            valid_x, valid_y = kwargs['eval_set'][1]
+            fold_result['best_score']['training'] = roc_auc_score(train_y, clf.predict_proba(train_x)[: ,1])
+            fold_result['best_score']['valid'] = roc_auc_score(valid_y, clf.predict_proba(valid_x)[:, 1])
+
+            fold_result['evals_result'] = {}
+            fold_result['evals_result']['training'] = clf.evals_result_[
+                'validation_0']['auc']
+            fold_result['evals_result']['valid'] = clf.evals_result_[
+                'validation_1']['auc']
 
         self.__kfold_result['fold_%s' % (on + 1)] = fold_result
 
@@ -45,23 +79,28 @@ class KFoldClassifier:
         out - indicate out of which fold the model is making predictions,
         start from 0.
         """
-        clf = self.__lgbClfs[out]
-        return clf.predict_proba(X, num_iteration=clf.best_iteration_, **kwargs)[:, 1]
+        clf = self.__clfs[out]
+        if self.__type == 'lgb':
+            kwargs['num_iteration'] = clf.best_iteration_
+        return clf.predict_proba(X, **kwargs)[:, 1]
 
     def predict_proba(self, X, **kwargs):
         """
         predict probability when all the models are trained.
         """
+        X = X[self.__features]
         ret = np.zeros(X.shape[0])
-        for clf in self.__lgbClfs:
-            ret += clf.predict_proba(X,
-                                     num_iteration=clf.best_iteration_)[:, 1]
-        ret /= len(self.__lgbClfs)
+        for clf in self.__clfs:
+            if self.__type == 'lgb':
+                kwargs['num_iteration'] = clf.best_iteration_
+            ret += clf.predict_proba(X, **kwargs)[:, 1]
+        ret /= len(self.__clfs)
         return ret
 
     def fit(self, X, y, **kwargs):
         oof_preds = np.zeros(X.shape[0])
-        self.__features = list(X.columns)
+        self.__features = self.__feat_sample(list(X.columns))
+        X = X[self.__features]
 
         for n_fold, (train_idx, valid_idx) in enumerate(self.__cv.split(X, y)):
             train_x, train_y = X.iloc[train_idx], y.iloc[train_idx]
@@ -97,7 +136,7 @@ class KFoldClassifier:
 
     @property
     def classifiers_(self):
-        return self.__lgbClfs
+        return self.__clfs
 
     @property
     def kfold_result_(self):
@@ -109,10 +148,10 @@ class KFoldClassifier:
 
 
 class StackingClassifier:
-    def __init__(self, base_classifiers: dict, meta_classifier, cv):
+    def __init__(self, base_classifiers: dict, meta_classifier):
         self.__base_classifiers = []
         for name, clf in base_classifiers.items():
-            self.__base_classifiers.append(KFoldClassifier(clf, cv))
+            self.__base_classifiers.append(clf)
             self.__base_classifiers[-1].name_ = name
 
         self.__meta_classifier = meta_classifier

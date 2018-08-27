@@ -2,17 +2,20 @@ from src.utils import *
 from src.feature_extract import feature_extract
 from src.HomeCreditClassifier import *
 from lightgbm import LGBMClassifier
+from xgboost.sklearn import XGBClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import LogisticRegressionCV
 import pandas as pd
 
 
-def run(name, mode, debug, **kwargs):
+def run(name, mode, debug, type_, **kwargs):
     basic_config = read_config('./config/basic_config.yaml')
     workspace = WorkSpace(name, basic_config['workspace'])
+
     train_df = pd.read_csv(kwargs['train_path']
                            ) if kwargs['train_path'] else None
     test_df = pd.read_csv(kwargs['test_path']) if kwargs['test_path'] else None
+
     if mode == 'search':
         if train_df is None or test_df is None:
             train_df, _ = runExtract(workspace, debug, basic_config['input'])
@@ -36,11 +39,12 @@ def run(name, mode, debug, **kwargs):
             if train_df is None or test_df is None:
                 train_df, test_df = runExtract(
                     workspace, debug, basic_config['input'])
-            models = runTrain(train_df, workspace, debug, model_config)
+            models = runTrain(train_df, workspace, debug, type_, model_config)
             runPredict(test_df, workspace, pred_model=models)
         elif mode == 'train':
             if train_df is None:
-                train_df, _ = runExtract(workspace, debug, basic_config['input'])
+                train_df, _ = runExtract(
+                    workspace, debug, basic_config['input'])
             runTrain(train_df, workspace, debug, config)
 
 
@@ -58,6 +62,9 @@ def runStacking(train_df, workspace, debug, stacking_config):
 
 
 def stacking(train_df, debug, stacking_config):
+    # construct cv for stacking model
+    cv = gen_cv(**stacking_config['stacking_setting'])
+
     # construct base classifiers
     base_lgbClfs = {}
     for clf_setting in stacking_config['base_classifier']:
@@ -65,19 +72,20 @@ def stacking(train_df, debug, stacking_config):
         model_param = clf_setting['model_param']
         # force reset the model_param in debug mode
         if debug:
-            model_param['n_estimators'] = 100
+            model_param['n_estimators'] = 10
             model_param['learning_rate'] = 0.3
-        base_lgbClfs[clf_name] = LGBMClassifier(**model_param)
+        lgb = LGBMClassifier(**model_param)
+        sp_rate, sp_seed = clf_setting['feat_sample'], model_param['random_state']
+        base_lgbClfs[clf_name] = KFoldClassifier(lgb, cv, sp_rate, sp_seed)
 
     # construct meta classifier
     meta_param = stacking_config['meta_classifier']['model_param']
-    meta_clf = LogisticRegressionCV(refit=True, scoring='roc_auc', verbose=10, **meta_param)
-
-    # construct cv for stacking model
-    cv = gen_cv(**stacking_config['stacking_setting'])
+    # all models in stacking would use the same cv obj
+    meta_clf = LogisticRegressionCV(
+        refit=True, scoring='roc_auc', cv=cv, verbose=10, **meta_param)
 
     # construct stacking model
-    stClf = StackingClassifier(base_lgbClfs, meta_clf, cv)
+    stClf = StackingClassifier(base_lgbClfs, meta_clf)
     feats = [f for f in train_df.columns if f not in [
         'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
     stClf.fit(train_df[feats], train_df['TARGET'])
@@ -89,61 +97,51 @@ def runPredict(test_df, workspace, **kwargs):
         model = kwargs['pred_model']
     else:
         model = workspace.load_model()
-    preds = lightgbm_pred(test_df, model)
+    preds = make_pred(test_df, model)
     test_df['TARGET'] = preds
     workspace.save(test_df[['SK_ID_CURR', 'TARGET']], 'preds.csv')
 
 
-def lightgbm_pred(test_df, model):
+def make_pred(test_df, model):
     feats = [f for f in test_df.columns if f not in [
         'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
     return model.predict_proba(test_df[feats])
 
 
-def runTrain(train_df, workspace, debug, model_config):
-    is_single = model_config['kfold_setting']['num_folds'] < 1
+def runTrain(train_df, workspace, debug, type_, model_config):
+    kfold_setting = model_config['kfold_setting']
+    is_single = kfold_setting['num_folds'] < 1
+
+    if type_ == 'lgb':
+        model_param = model_config['lgb_model_param']
+        constructor = LGBMClassifier
+    elif type_ == 'xgb':
+        model_param = model_config['xgb_model_param']
+        constructor = XGBClassifier
+
+    if debug:
+        model_param['n_estimators'] = 100
+        model_param['learning_rate'] = 0.3
+
+    clf = constructor(**model_param)
+
+    feats = [f for f in train_df.columns if f not in [
+        'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
+    X, y = train_df[feats], train_df['TARGET']
+
     if is_single:
         print("INFO: num_folds is less than 1, SINGLE MODEL would be trained.")
-        model = single_lightgbm(train_df, debug=debug, **model_config)
-        workspace.save(model, 'single_lgb.pkl')
+        model = clf
+        with timer('Train Single %s Model' % type_):
+            clf.fit(X, y, eval_set=[(X, y)], eval_metric='auc', verbose=100)
+        workspace.save(model, 'single_bst.pkl')
     else:
-        model = kfold_lightgbm(train_df, debug=debug, **model_config)
-        workspace.save(model, 'kfold_lgb.pkl')
+        cv = gen_cv(**kfold_setting)
+        model = KFoldClassifier(clf, cv)
+        with timer('Train KFold %s Model' % type_):
+            model.fit(X, y)
+        workspace.save(model, 'kfold_bst.pkl')
         workspace.gen_report('kfold')
-    return model
-
-
-def kfold_lightgbm(train_df, debug, kfold_setting, model_param):
-    feats = [f for f in train_df.columns if f not in [
-        'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
-    if debug:
-        model_param['n_estimators'] = 100
-        model_param['learning_rate'] = 0.3
-
-    lgbClf = LGBMClassifier(**model_param)
-    cv = gen_cv(**kfold_setting)
-    model = KFoldClassifier(lgbClf, cv)
-
-    with timer('Train KFold lightgbm'):
-        model.fit(train_df[feats], train_df['TARGET'])
-    return model
-
-
-def single_lightgbm(train_df, debug, model_param, **kwargs):
-    feats = [f for f in train_df.columns if f not in [
-        'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
-    train_x, train_y = train_df[feats], train_df['TARGET']
-    # force reset the model_param in debug mode
-    if debug:
-        model_param['n_estimators'] = 100
-        model_param['learning_rate'] = 0.3
-
-    model = LGBMClassifier(**model_param)
-    with timer('Train single lightgbm'):
-        model.fit(train_x, train_y,
-                  eval_set=[(train_x, train_y)],
-                  eval_metric='auc', verbose=100)
-
     return model
 
 

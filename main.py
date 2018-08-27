@@ -38,6 +38,11 @@ def main():
         help="running the model in debug mode,\
         i.e. only training a few samples helps \
         you locate the possible bugs quickly.")
+    parser.add_argument(
+        "-t", "--type",
+        default='lgb',
+        choices=['lgb', 'xgb', 'lgb-forest'],
+        help="choose wether to use lightGBM or XGBoost Libary.")
 
     args = parser.parse_args()
     if args.name:
@@ -59,6 +64,7 @@ def main():
         name=name,
         debug=args.debug,
         mode=args.mode,
+        type_=args.type,
         train_path=args.train_data,
         test_path=args.test_data
     )
