@@ -1,7 +1,7 @@
 from src.utils import *
 from src.feature_extract import feature_extract
 from src.HomeCreditClassifier import *
-from lightgbm import LGBMClassifier
+from lightgbm.sklearn import LGBMClassifier
 from xgboost.sklearn import XGBClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import LogisticRegressionCV
@@ -17,10 +17,10 @@ def run(name, mode, debug, type_, **kwargs):
     test_df = pd.read_csv(kwargs['test_path']) if kwargs['test_path'] else None
 
     if mode == 'search':
-        if train_df is None or test_df is None:
+        if train_df is None:
             train_df, _ = runExtract(workspace, debug, basic_config['input'])
         search_config = read_config('./config/param_search.yaml')
-        runSearch(train_df, workspace, debug, search_config)
+        runSearch(train_df, workspace, debug, type_, search_config)
     elif mode == 'extract':
         runExtract(workspace, debug, basic_config['input'])
     elif mode == 'predict':
@@ -32,6 +32,8 @@ def run(name, mode, debug, type_, **kwargs):
         stacking_config = read_config('./config/stacking_config.yaml')
         model = runStacking(train_df, workspace, debug, stacking_config)
         runPredict(test_df, workspace, pred_model=model)
+        workspace.save(model, 'stacking.pkl')
+        workspace.gen_report('stacking')
     # all & train mode
     else:
         model_config = read_config('./config/model_config.yaml')
@@ -45,7 +47,7 @@ def run(name, mode, debug, type_, **kwargs):
             if train_df is None:
                 train_df, _ = runExtract(
                     workspace, debug, basic_config['input'])
-            runTrain(train_df, workspace, debug, config)
+            runTrain(train_df, workspace, debug, type_, model_config)
 
 
 def runExtract(workspace, debug, input_config):
@@ -57,8 +59,7 @@ def runExtract(workspace, debug, input_config):
 
 def runStacking(train_df, workspace, debug, stacking_config):
     model = stacking(train_df, debug, stacking_config)
-    workspace.save(model, 'stacking.pkl')
-    workspace.gen_report('stacking')
+    return model
 
 
 def stacking(train_df, debug, stacking_config):
@@ -115,6 +116,10 @@ def runTrain(train_df, workspace, debug, type_, model_config):
     if type_ == 'lgb':
         model_param = model_config['lgb_model_param']
         constructor = LGBMClassifier
+    elif type_ == 'lgb-rf':
+        model_param = model_config['lgb_rf_model_param']
+        model_param['boosting_type'] = 'rf'
+        constructor = LGBMClassifier
     elif type_ == 'xgb':
         model_param = model_config['xgb_model_param']
         constructor = XGBClassifier
@@ -134,26 +139,28 @@ def runTrain(train_df, workspace, debug, type_, model_config):
         model = clf
         with timer('Train Single %s Model' % type_):
             clf.fit(X, y, eval_set=[(X, y)], eval_metric='auc', verbose=100)
-        workspace.save(model, 'single_bst.pkl')
+        workspace.save(model, 'single_model.pkl')
     else:
         cv = gen_cv(**kfold_setting)
         model = KFoldClassifier(clf, cv)
         with timer('Train KFold %s Model' % type_):
             model.fit(X, y)
-        workspace.save(model, 'kfold_bst.pkl')
+        workspace.save(model, 'kfold_model.pkl')
         workspace.gen_report('kfold')
     return model
 
 
-def runSearch(train_df, workspace, debug, search_config):
-    searcher = grid_search(train_df, debug=debug, **search_config)
-    workspace.save(searcher, 'grid_search.pkl')
-    workspace.gen_report('grid_search')
-
-
-def grid_search(train_df, debug, kfold_setting, param_grid):
-    feats = [f for f in train_df.columns if f not in [
-        'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
+def runSearch(train_df, workspace, debug, type_, search_config):
+    if type_ == 'lgb':
+        param_grid = search_config['lgb_param_grid']
+        constructor = LGBMClassifier
+    elif type_ == 'lgb-rf':
+        param_grid = search_config['lgb_rf_param_grid']
+        param_grid['boosting_type'] = 'rf'
+        constructor = LGBMClassifier
+    elif type_ == 'xgb':
+        param_grid = search_config['xgb_param_grid']
+        constructor = XGBClassifier
 
     def check_param_grid(param_grid):
         fixed_params = {}
@@ -186,13 +193,19 @@ def grid_search(train_df, debug, kfold_setting, param_grid):
     for key, val in param_grid.items():
         print("%-20s = %s" % (key, val))
 
-    lgbClf = LGBMClassifier(**fixed_params)
+    clf = constructor(**fixed_params)
+
+    # prepare training data
+    feats = [f for f in train_df.columns if f not in [
+        'TARGET', 'SK_ID_CURR', 'SK_ID_BUREAU', 'SK_ID_PREV', 'index']]
+    X, y = train_df[feats], train_df['TARGET']
 
     # construct cv
+    kfold_setting = search_config['kfold_setting']
     cv = gen_cv(**kfold_setting)
 
     # construct Grid searcher
-    searcher = GridSearchCV(estimator=lgbClf,
+    searcher = GridSearchCV(estimator=clf,
                             param_grid=param_grid,
                             cv=cv,
                             scoring='roc_auc',
@@ -200,6 +213,8 @@ def grid_search(train_df, debug, kfold_setting, param_grid):
                             refit=False,
                             verbose=5,
                             return_train_score=True)
-    searcher.fit(train_df[feats], train_df['TARGET'])
+    searcher.fit(X, y)
 
-    return searcher
+    # save result
+    workspace.save(searcher, 'grid_search.pkl')
+    workspace.gen_report('grid_search')

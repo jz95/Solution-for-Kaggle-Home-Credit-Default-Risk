@@ -41,10 +41,15 @@ def main():
     parser.add_argument(
         "-t", "--type",
         default='lgb',
-        choices=['lgb', 'xgb', 'lgb-forest'],
+        choices=['lgb', 'xgb', 'lgb-rf'],
         help="choose wether to use lightGBM or XGBoost Libary.")
 
+    # parser.add_argument(
+    #     "-k", "--topK", type=int,
+    #     help="choose how many top feats you are using.")
+
     args = parser.parse_args()
+
     if args.name:
         name = args.name
     else:
@@ -59,6 +64,11 @@ def main():
 
     if args.debug and not args.name:
         name += '_DEBUG'
+
+    # with open('./rank_feats.pkl', 'rb') as f:
+    #     feats = pickle.load(f)
+    #     n = args.topK
+    #     topKfeats = feats[0: n + 1]
 
     run(
         name=name,

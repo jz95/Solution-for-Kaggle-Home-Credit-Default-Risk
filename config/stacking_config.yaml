@@ -2,46 +2,46 @@
 ### CONFIG FOR MODEL STACKING ###
 #################################
 stacking_setting:
-  num_folds: 5
+  num_folds: 6
   stratified: True
   random_state: 2018
 
 base_classifier:
   - name: base_lgb_1
-    feat_sample: 1
+    feat_sample: 0.85
     model_param:
       random_state: 1
       n_jobs: -1
       verbose: -1
 
-      n_estimators: 3800
-      learning_rate: 0.01
+      n_estimators: 5000
+      learning_rate: 0.008
       
       num_leaves: 43
       max_depth: -1
       
-      colsample_bytree: 0.1
+      colsample_bytree: 0.12
       subsample: 0.85
-      subsample_freq: 3
+      subsample_freq: 2
       
       reg_alpha: 5
       reg_lambda: 2
       
       min_split_gain: 0.02
       min_child_weight: 45
-      min_child_samples: 20
+      min_child_samples: 55
 
   - name: base_lgb_2
-    feat_sample: 0.8
+    feat_sample: 0.75
     model_param:
       random_state: 2
       n_jobs: -1
       verbose: -1
 
-      n_estimators: 4500
+      n_estimators: 4100
       learning_rate: 0.015
       
-      num_leaves: 32
+      num_leaves: 37
       max_depth: -1
       
       colsample_bytree: 0.12
@@ -53,10 +53,10 @@ base_classifier:
       
       min_split_gain: 0.02
       min_child_weight: 35
-      min_child_samples: 20
+      min_child_samples: 50
 
   - name: base_lgb_3
-    feat_sample: 0.75
+    feat_sample: 0.9
     model_param:
       random_state: 3
       n_jobs: -1
@@ -69,7 +69,7 @@ base_classifier:
       max_depth: -1
       
       colsample_bytree: 0.08
-      subsample: 0.8
+      subsample: 0.9
       subsample_freq: 3
       
       reg_alpha: 0
@@ -80,7 +80,7 @@ base_classifier:
       min_child_samples: 20
 
   - name: base_lgb_4
-    feat_sample: 0.7
+    feat_sample: 0.78
     model_param:
       random_state: 4
       n_jobs: -1
@@ -89,19 +89,19 @@ base_classifier:
       n_estimators: 4500
       learning_rate: 0.008
       
-      num_leaves: 43
+      num_leaves: 50
       max_depth: -1
       
       colsample_bytree: 0.1
       subsample: 0.85
       subsample_freq: 3
       
-      reg_alpha: 2
+      reg_alpha: 5
       reg_lambda: 0
       
-      min_split_gain: 0.1
-      min_child_weight: 45
-      min_child_samples: 20
+      min_split_gain: 0.065
+      min_child_weight: 60
+      min_child_samples: 45
 
   - name: base_lgb_5
     feat_sample: 0.9
@@ -123,48 +123,48 @@ base_classifier:
       reg_alpha: 5
       reg_lambda: 0
       
-      min_split_gain: 0.4
-      min_child_weight: 38
-      min_child_samples: 20
+      min_split_gain: 0.5
+      min_child_weight: 32
+      min_child_samples: 15
 
   - name: base_lgb_6
-    feat_sample: 0.65
+    feat_sample: 0.72
     model_param:
       random_state: 6
       n_jobs: -1
       verbose: -1
 
       n_estimators: 4500
-      learning_rate: 0.008
+      learning_rate: 0.011
       
       num_leaves: 47
       max_depth: -1
       
       colsample_bytree: 0.1
-      subsample: 0.8
+      subsample: 0.82
       subsample_freq: 2
       
       reg_alpha: 0
       reg_lambda: 5
       
-      min_split_gain: 0.1
+      min_split_gain: 0.01
       min_child_weight: 48
       min_child_samples: 20
 
   - name: base_lgb_7
-    feat_sample: 0.65
+    feat_sample: 0.75
     model_param:
       random_state: 7
       n_jobs: -1
       verbose: -1
 
       n_estimators: 5000
-      learning_rate: 0.007
+      learning_rate: 0.0085
       
-      num_leaves: 38
+      num_leaves: 31
       max_depth: -1
       
-      colsample_bytree: 0.1
+      colsample_bytree: 0.09
       subsample: 0.80
       subsample_freq: 2
       
@@ -183,7 +183,7 @@ base_classifier:
       verbose: -1
 
       n_estimators: 5000
-      learning_rate: 0.007
+      learning_rate: 0.0085
       
       num_leaves: 38
       max_depth: -1
@@ -199,51 +199,53 @@ base_classifier:
       min_child_weight: 38
       min_child_samples: 20
 
-  # - name: base_lgb_9
-  #   model_param:
-  #     random_state: 8
-  #     n_jobs: -1
-  #     verbose: -1
+  - name: base_lgb_9
+    feat_sample: 0.95
+    model_param:
+      random_state: 9
+      n_jobs: -1
+      verbose: -1
 
-  #     n_estimators: 3400
-  #     learning_rate: 0.012
+      n_estimators: 3400
+      learning_rate: 0.012
       
-  #     num_leaves: 42
-  #     max_depth: -1
+      num_leaves: 42
+      max_depth: -1
       
-  #     colsample_bytree: 0.1
-  #     subsample: 0.80
-  #     subsample_freq: 2
+      colsample_bytree: 0.09
+      subsample: 0.80
+      subsample_freq: 2
       
-  #     reg_alpha: 0
-  #     reg_lambda: 5
+      reg_alpha: 0
+      reg_lambda: 5
       
-  #     min_split_gain: 0.02
-  #     min_child_weight: 45
-  #     min_child_samples: 20
+      min_split_gain: 0.02
+      min_child_weight: 45
+      min_child_samples: 20
 
-  # - name: base_lgb_10
-  #   model_param:
-  #     random_state: 8
-  #     n_jobs: -1
-  #     verbose: -1
+  - name: base_lgb_10
+    feat_sample: 0.82
+    model_param:
+      random_state: 10
+      n_jobs: -1
+      verbose: -1
 
-  #     n_estimators: 5000
-  #     learning_rate: 0.008
+      n_estimators: 3800
+      learning_rate: 0.008
       
-  #     num_leaves: 29
-  #     max_depth: -1
+      num_leaves: 48
+      max_depth: -1
       
-  #     colsample_bytree: 0.08
-  #     subsample: 0.78
-  #     subsample_freq: 2
+      colsample_bytree: 0.12
+      subsample: 0.78
+      subsample_freq: 2
       
-  #     reg_alpha: 0
-  #     reg_lambda: 2
+      reg_alpha: 0
+      reg_lambda: 2
       
-  #     min_split_gain: 0.5
-  #     min_child_weight: 30
-  #     min_child_samples: 20
+      min_split_gain: 0.5
+      min_child_weight: 30
+      min_child_samples: 20
 
 # setting for logistic regression
 meta_classifier:

@@ -56,25 +56,6 @@ def batch_agg(df, by_cols, on_cols, prefix=''):
     return df
 
 
-def gen_agg_info(by_cols, on_cols, by_num):
-    ret = []
-
-    def rec(i, by_cols_select, n_left):
-        if n_left == 0:
-            infoDict = {}
-            infoDict['by'] = by_cols_select
-            infoDict['on'] = on_cols
-            infoDict['agg'] = 'mean'
-            ret.append(infoDict)
-            return
-
-        for j in range(i, len(by_cols) - n_left + 1):
-            rec(j + 1, by_cols_select + [by_cols[j]], n_left - 1)
-
-    rec(0, [], by_num)
-    return ret
-
-
 def application_train_test(train_df, test_df, nan_as_category=False):
     # merge the train and test DataFrame
     df = train_df.append(test_df).reset_index()
@@ -218,6 +199,7 @@ def application_train_test(train_df, test_df, nan_as_category=False):
     on_cols = ['APP_CREDIT_TO_ANNUITY_RATIO', 'DAYS_BIRTH', 'APP_SCORE1_TO_BIRTH_RATIO', 'APP_ANNUITY_TO_INCOME_RATIO', 'AMT_INCOME_TOTAL']
 
     df = batch_agg(df, by_cols, on_cols, prefix='AGG_APP_')
+    # df, _ = one_hot_encoding(df, nan_as_category)
     # df.drop(columns=level_cols, inplace=True)
     return df
 

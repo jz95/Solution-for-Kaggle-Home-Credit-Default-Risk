@@ -46,7 +46,7 @@ class WorkSpace:
         return ret
 
     def load_model(self):
-        filenames = ['kfold_bst.pkl', 'single_bst.pkl', 'stacking.pkl']
+        filenames = ['kfold_model.pkl', 'single_model.pkl', 'stacking.pkl']
         ret = None
         for filename in filenames:
             fullname = os.path.join(self.__dir, filename)

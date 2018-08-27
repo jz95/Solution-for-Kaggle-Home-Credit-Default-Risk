@@ -109,7 +109,7 @@ class KFoldClassifier:
                                    eval_set=[(train_x, train_y),
                                              (valid_x, valid_y)],
                                    eval_metric='auc', verbose=100,
-                                   early_stopping_rounds=200)
+                                   early_stopping_rounds=300)
             oof_preds[valid_idx] = self.__predict_proba_out_of_fold(
                 valid_x, out=n_fold)
             valid_auc = self.__kfold_result['fold_%s' % (
@@ -156,17 +156,6 @@ class StackingClassifier:
 
         self.__meta_classifier = meta_classifier
 
-    def predict_proba(self, X):
-        new_X = self.__gen_new_X_pred(X)
-        return self.__meta_classifier.predict_proba(new_X)[:, 1]
-
-    def fit(self, X, y):
-        new_X = self.__gen_new_X_fit(X, y)
-        self.__newX_fit = new_X
-        print('Train meta classifier.')
-        self.__meta_classifier.fit(new_X, y)
-        return self.__meta_classifier
-
     def __gen_new_X_fit(self, X, y):
         n_rows = X.shape[0]
         n_cols = len(self.__base_classifiers)
@@ -189,6 +178,18 @@ class StackingClassifier:
             ret[:, i] = clf.predict_proba(X)
         return ret
 
+    def predict_proba(self, X):
+        new_X = self.__gen_new_X_pred(X)
+        self.__new_X_pred = new_X
+        return self.__meta_classifier.predict_proba(new_X)[:, 1]
+
+    def fit(self, X, y):
+        new_X = self.__gen_new_X_fit(X, y)
+        self.__newX_fit = new_X
+        print('Train meta classifier.')
+        self.__meta_classifier.fit(new_X, y)
+        return self.__meta_classifier
+
     @property
     def base_classifiers_(self):
         return self.__base_classifiers
@@ -198,5 +199,5 @@ class StackingClassifier:
         return self.__meta_classifier
 
     @property
-    def newX_fit(self):
-        return self.__newX_fit
+    def newX_pred(self):
+        return self.__new_X_pred
