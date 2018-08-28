@@ -113,6 +113,7 @@ def runTrain(train_df, workspace, debug, type_, model_config):
     kfold_setting = model_config['kfold_setting']
     is_single = kfold_setting['num_folds'] < 1
 
+    weights = read_weights(model_config['weights_file'])
     if type_ == 'lgb':
         model_param = model_config['lgb_model_param']
         constructor = LGBMClassifier
@@ -127,6 +128,7 @@ def runTrain(train_df, workspace, debug, type_, model_config):
     if debug:
         model_param['n_estimators'] = 100
         model_param['learning_rate'] = 0.3
+        weights = weights[: len(train_df)]
 
     clf = constructor(**model_param)
 
@@ -138,13 +140,13 @@ def runTrain(train_df, workspace, debug, type_, model_config):
         print("INFO: num_folds is less than 1, SINGLE MODEL would be trained.")
         model = clf
         with timer('Train Single %s Model' % type_):
-            clf.fit(X, y, eval_set=[(X, y)], eval_metric='auc', verbose=100)
+            clf.fit(X, y, eval_set=[(X, y)], eval_metric='auc', verbose=100, sample_weight=weights)
         workspace.save(model, 'single_model.pkl')
     else:
         cv = gen_cv(**kfold_setting)
         model = KFoldClassifier(clf, cv)
         with timer('Train KFold %s Model' % type_):
-            model.fit(X, y)
+            model.fit(X, y, sample_weight=weights)
         workspace.save(model, 'kfold_model.pkl')
         workspace.gen_report('kfold')
     return model

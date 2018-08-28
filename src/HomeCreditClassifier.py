@@ -101,15 +101,21 @@ class KFoldClassifier:
         oof_preds = np.zeros(X.shape[0])
         self.__features = self.__feat_sample(list(X.columns))
         X = X[self.__features]
-
+        weights = kwargs['sample_weight']
         for n_fold, (train_idx, valid_idx) in enumerate(self.__cv.split(X, y)):
             train_x, train_y = X.iloc[train_idx], y.iloc[train_idx]
             valid_x, valid_y = X.iloc[valid_idx], y.iloc[valid_idx]
+            if weights is not None:
+                sample_weight, eval_sample_weight = weights[train_idx], list(weights[valid_idx])
+            else:
+                sample_weight, eval_sample_weight = None, None
             self.__fit_on_one_fold(train_x, train_y, on=n_fold,
                                    eval_set=[(train_x, train_y),
                                              (valid_x, valid_y)],
                                    eval_metric='auc', verbose=100,
-                                   early_stopping_rounds=300)
+                                   sample_weight=sample_weight,
+                                   eval_sample_weight=eval_sample_weight,
+                                   early_stopping_rounds=500)
             oof_preds[valid_idx] = self.__predict_proba_out_of_fold(
                 valid_x, out=n_fold)
             valid_auc = self.__kfold_result['fold_%s' % (

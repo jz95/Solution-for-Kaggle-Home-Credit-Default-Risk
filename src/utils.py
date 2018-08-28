@@ -87,6 +87,15 @@ def read_config(filename):
     return data
 
 
+def read_weights(filename):
+    try:
+        with open(filename, 'rb') as f:
+            data = pickle.load(f)
+    except Exception:
+        data = None
+    return data
+
+
 def gen_cv(num_folds, random_state, stratified):
     if stratified:
         return StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=random_state)

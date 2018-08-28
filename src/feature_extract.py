@@ -34,25 +34,25 @@ def batch_box(df, cols):
 def batch_agg(df, by_cols, on_cols, prefix=''):
     agg_info = []
     for by_col in by_cols:
-        info = dict(by=list(by_col), on=on_cols, agg='mean')
+        info = dict(by=list(by_col), on=on_cols, agg=['mean', 'std'])
         agg_info.append(info)
 
     for info in agg_info:
         by_cols = info['by']
         on_cols = info['on']
-        agg_method = info['agg']
         gby = df.groupby(by_cols)[on_cols]
-        new_col_names = [
-            "{}{}_ON_{}_BY_{}".
-            format(prefix,
-                   agg_method,
-                   on_col,
-                   '_N_'.join(by_cols))
-            .upper() for on_col in on_cols
-        ]
-        nameMap = dict(zip(on_cols, new_col_names))
-        temp = gby.agg(agg_method).rename(columns=nameMap).reset_index()
-        df = df.merge(temp, on=by_cols, how='left')
+        for agg_method in info['agg']:
+            new_col_names = [
+                "{}{}_ON_{}_BY_{}".
+                format(prefix,
+                       agg_method,
+                       on_col,
+                       '_N_'.join(by_cols))
+                .upper() for on_col in on_cols
+            ]
+            nameMap = dict(zip(on_cols, new_col_names))
+            temp = gby.agg(agg_method).rename(columns=nameMap).reset_index()
+            df = df.merge(temp, on=by_cols, how='left')
     return df
 
 
@@ -156,6 +156,12 @@ def application_train_test(train_df, test_df, nan_as_category=False):
 
     df['APP_CNT_CHILD_TO_BIRTH_RATIO'] = df['CNT_CHILDREN'] / df['DAYS_BIRTH']
     df['APP_CNT_CHILD_TO_REG_RATIO'] = df['CNT_CHILDREN'] / df['DAYS_REGISTRATION']
+
+    df['APP_CREDIT_TO_ANNUITY_RATIO_DIV_SCORE1_TO_BIRTH_RATIO'] = df['APP_CREDIT_TO_ANNUITY_RATIO'] / df['APP_SCORE1_TO_BIRTH_RATIO']
+    df['APP_CREDIT_TO_ANNUITY_RATIO_DIV_DAYS_BIRTH'] = df['APP_CREDIT_TO_ANNUITY_RATIO'] / (df['DAYS_BIRTH'] / 365.25)
+    df['APP_CREDIT_TO_DAYS_BIRTH_RATIO'] = df['AMT_CREDIT'] / (df['DAYS_BIRTH'] / 365.25)
+    df['APP_INCOME_DIV_BIRTH_TO_EMPLOYED_RATIO'] = df['AMT_INCOME_TOTAL'] / df['APP_BIRTH_TO_EMPLOYED_RATIO']
+    df['APP_ANNUITY_TO_INCOME_RATIO_DIV_BIRTH_TO_EMPLOYED_RATIO'] = df['APP_ANNUITY_TO_INCOME_RATIO'] / df['APP_BIRTH_TO_EMPLOYED_RATIO']
 
     # CONTACT INFO
     contact_cols = ['FLAG_MOBIL', 'FLAG_EMP_PHONE', 'FLAG_WORK_PHONE', 'FLAG_CONT_MOBILE', 'FLAG_PHONE', 'FLAG_EMAIL']
@@ -437,7 +443,7 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     gc.collect()
 
     bureau_agg['BURO_DAYS_DIFF_MEAN_TO_ACTUAL_TIME_SPAN_MEAN_RATIO'] = bureau_agg['BURO_DAYS_DIFF_MEAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_MEAN']
-    bureau_agg['BURO_DAYS_DIFF_MEAN_TO_ACTUAL_TIME_SPAN_SUM_RATIO'] = bureau_agg['BURO_DAYS_DIFF_MEAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_MEAN']
+    bureau_agg['BURO_DAYS_DIFF_MEAN_TO_ACTUAL_TIME_SPAN_SUM_RATIO'] = bureau_agg['BURO_DAYS_DIFF_MEAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_SUM']
     bureau_agg['BURO_ALL_CREDIT_TIME_SPAN_TO_ACUTAL_TIME_SPAN_SUM_RATIO'] = bureau_agg['BURO_ALL_CREDIT_TIME_SPAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_SUM']
 
     bureau_agg['BURO_AMT_CREDIT_SUM_SUM_TO_LIMIT_SUM_RATIO'] = bureau_agg['BURO_AMT_CREDIT_SUM_SUM'] / bureau_agg['BURO_AMT_CREDIT_SUM_LIMIT_SUM']
@@ -452,6 +458,10 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     bureau_agg['BURO_AVG_MAX_OVERDUE_ON_BUREAU_BALANCE_REC'] = bureau_agg['BURO_AMT_CREDIT_MAX_OVERDUE_SUM'] / bureau_agg['BURO_MONTHS_BALANCE_SIZE_SUM']
     bureau_agg['BURO_AVG_OVERDUE_ON_BUREAU_BALANCE_REC'] = bureau_agg['BURO_AMT_CREDIT_SUM_OVERDUE_SUM'] / bureau_agg['BURO_MONTHS_BALANCE_SIZE_SUM']
     bureau_agg['BURO_AVG_ANNUITY_ON_BUREAU_BALANCE_REC'] = bureau_agg['BURO_AMT_ANNUITY_SUM'] / bureau_agg['BURO_MONTHS_BALANCE_SIZE_SUM']
+
+    bureau_agg['BURO_AMT_ANNUITY_SUM_DIV_ACTUAL_TIME_SPAN_SUM'] = bureau_agg['BURO_AMT_ANNUITY_SUM'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_SUM']
+    bureau_agg['BURO_AMT_CREDIT_SUM_SUM_DIV_ACTUAL_TIME_SPAN_SUM'] = bureau_agg['BURO_AMT_CREDIT_SUM_SUM'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_SUM']
+    bureau_agg['BURO_AMT_DEBT_SUM_DIV_ACTUAL_TIME_SPAN_SUM'] = bureau_agg['BURO_AMT_CREDIT_SUM_DEBT_SUM'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_SUM']
 
     bureau_agg['BURO_AVG_PROLONG_CREDIT'] = bureau_agg['BURO_AMT_CREDIT_SUM_SUM'] / bureau_agg['BURO_CNT_CREDIT_PROLONG_SUM']
     bureau_agg['BURO_AVG_PROLONG_ANNUITY'] = bureau_agg['BURO_AMT_ANNUITY_SUM'] / bureau_agg['BURO_CNT_CREDIT_PROLONG_SUM']
@@ -533,7 +543,7 @@ def previous_applications(prev, nan_as_category=True):
 
     prev['AVG_PAYMENT_BY_DAY'] = prev['AMT_CREDIT'] / prev['ACTUAL_TIME_SPAN']
     prev['AVG_ANNUITY_BY_DAY'] = prev['AMT_ANNUITY'] / prev['ACTUAL_TIME_SPAN']
-    prev['AVG_TOTAL_PAYMENT_BY_DAY'] = prev['AVG_ANNUITY_BY_DAY'] / prev['AVG_PAYMENT_BY_DAY']
+    prev['AVG_TOTAL_PAYMENT_BY_DAY'] = prev['AVG_ANNUITY_BY_DAY'] + prev['AVG_PAYMENT_BY_DAY']
 
     # OTHER
     prev['IS_SELLERPLACE_AREA_MINUS_1'] = (prev['SELLERPLACE_AREA'] == -1).astype('float')
@@ -572,6 +582,7 @@ def previous_applications(prev, nan_as_category=True):
         'IS_EARLY_PAID',
         'AVG_PAYMENT_TOTAL',
         'APP_TO_PRICE_RATIO',
+        'DAYS_LAST_DUE_1ST_VERSION',
     ]
 
     prev = batch_agg(prev, by_cols, on_cols)
@@ -607,6 +618,89 @@ def previous_applications(prev, nan_as_category=True):
 
     prev, cat_cols = one_hot_encoding(prev, nan_as_category)
 
+    # EXTRACT THE LATEST APP FOR EACH USER
+    cols = [
+        'AMT_ANNUITY',
+        'AMT_APPLICATION',
+        'AMT_CREDIT',
+        'AMT_DOWN_PAYMENT',
+        'AMT_GOODS_PRICE',
+
+        'NFLAG_INSURED_ON_APPROVAL',
+
+        'RATE_DOWN_PAYMENT',
+
+        'DAYS_DECISION',
+        'CNT_PAYMENT',
+
+        'DAYS_FIRST_DRAWING',
+        'DAYS_FIRST_DUE',
+        'DAYS_LAST_DUE',
+        'DAYS_TERMINATION',
+
+        'APP_TO_ANNUITY_RATIO',
+        'APP_TO_CREDIT_RATIO',
+        'APP_TO_DOWN_RATIO',
+        'APP_TO_PRICE_RATIO',
+
+        'ANNUITY_TO_CREDIT_RATIO',
+        'ANNUITY_TO_DOWN_RATIO',
+        'ANNUITY_TO_PRICE_RATIO',
+
+        'CREDIT_TO_DOWN_RATIO',
+        'CREDIT_TO_PRICE_RATIO',
+
+        'DOWN_TO_PRICE_RATIO',
+        'APP_SUB_CREDIT',
+
+        'AVG_PAYMENT_AMT_CREDIT',
+        'AVG_PAYMENT_AMT_ANNUITY',
+        'AVG_PAYMENT_TOTAL',
+
+        # DAYS
+        'PLAN_TIME_SPAN',
+        'ACTUAL_TIME_SPAN',
+        'ACTUAL_TIME_SPAN_TO_PLAN_RATIO',
+        'DAYS_DESICION_TO_FTRST_DUE_RATIO',
+        'DAYS_TERMINATION_SUB_LAST_DUE',
+
+        'IS_EARLY_PAID',
+        'IS_LATER_PAID',
+        'IS_FISRT_DRAWING_LATER_THAN_LAST_DUE',
+        'IS_FISRT_DRAWING_LATER_THAN_FIRST_DUE',
+
+        'AVG_PAYMENT_DAYS',
+        'AVG_PAYMENT_BY_DAY',
+        'AVG_ANNUITY_BY_DAY',
+        'AVG_TOTAL_PAYMENT_BY_DAY',
+
+        'IS_SELLERPLACE_AREA_MINUS_1',
+        'IS_SELLERPLACE_AREA_ZERO',
+    ]
+    cols += cat_cols
+
+    def find_lateset_app(df, cols):
+        # note that month balance is negative
+        dest = df['DAYS_LAST_DUE_1ST_VERSION'].max()
+        ret = df.loc[df['DAYS_LAST_DUE_1ST_VERSION'] == dest, cols].values.ravel()
+        n = len(cols)
+        if len(ret) == 0:
+            ret = np.empty((n, ))
+            ret[:] = np.nan
+        elif len(ret) > n:
+            ret = ret[:n]
+        return ret
+
+    latestDf = {}
+    for sk_id, sub_df in prev.groupby('SK_ID_CURR'):
+        latestDf[sk_id] = find_lateset_app(sub_df, cols)
+    latestDf = pd.DataFrame(latestDf).T
+    new_col_names = ['PREV_' + col + '_LATEST' for col in cols]
+    latestDf.columns = pd.Index(new_col_names)
+
+    prev_agg = prev_agg.join(latestDf)
+    del latestDf
+    gc.collect()
     # AGG TO SK_ID_CURR
     num_aggregations = {
         # original features
@@ -628,11 +722,11 @@ def previous_applications(prev, nan_as_category=True):
         'DAYS_DECISION': ['max', 'mean'],
         'CNT_PAYMENT': ['mean', 'sum'],
 
-        'DAYS_FIRST_DRAWING': ['min', 'max'],
-        'DAYS_FIRST_DUE': ['min', 'max'],
-        'DAYS_LAST_DUE_1ST_VERSION': ['min', 'max'],
-        'DAYS_LAST_DUE': ['min', 'max'],
-        'DAYS_TERMINATION': ['min', 'max'],
+        'DAYS_FIRST_DRAWING': ['min', 'max', 'mean'],
+        'DAYS_FIRST_DUE': ['min', 'max', 'mean'],
+        'DAYS_LAST_DUE_1ST_VERSION': ['min', 'max', 'mean'],
+        'DAYS_LAST_DUE': ['min', 'max', 'mean'],
+        'DAYS_TERMINATION': ['min', 'max', 'mean'],
 
         # manual features
         # AMT
@@ -678,27 +772,32 @@ def previous_applications(prev, nan_as_category=True):
     }
 
     agg_aggregations = {}
-    agg_cols = [col for col in prev.columns if 'MEAN_ON_' in col]
+    agg_cols = [col for col in prev.columns if 'MEAN_ON_' in col or 'STD_ON_' in col]
     for agg in agg_cols:
-        agg_aggregations[agg] = 'median'
+        agg_aggregations[agg] = ['median', 'mean']
 
     # Previous applications categorical features
     cat_aggregations = {}
     for cat in cat_cols:
         cat_aggregations[cat] = ['mean', 'sum']
+
     prev_agg_auto = prev.groupby('SK_ID_CURR').agg(
         {**num_aggregations, **cat_aggregations, **agg_aggregations})
     prev_agg_auto.columns = pd.Index(
         ['PREV_' + e[0] + "_" + e[1].upper() for e in prev_agg_auto.columns.tolist()])
 
     # join back to prev_agg
-    prev_agg = prev_agg.join(prev_agg_auto, on='SK_ID_CURR', how='left')
+    prev_agg = prev_agg.join(prev_agg_auto)
     del prev_agg_auto
     gc.collect()
 
+    prev_agg['PREV_DAYS_DIFF_MAX_DIV_ACTUAL_TIME_SPAN_SUM'] = prev_agg['PREV_DAYS_DIFF_MAX'] / prev_agg['PREV_ACTUAL_TIME_SPAN_SUM']
+    prev_agg['PREV_DAYS_DIFF_MEAN_DIV_ACTUAL_TIME_SPAN_MEAN'] = prev_agg['PREV_DAYS_DIFF_MEAN'] / prev_agg['PREV_ACTUAL_TIME_SPAN_MEAN']
+    prev_agg['PREV_IS_LATER_PAID_SUM_DIV_IS_EARLY_SUM_PAID'] = prev_agg['PREV_IS_LATER_PAID_SUM'] / prev_agg['PREV_IS_EARLY_PAID_SUM']
+
     # Previous Applications: Approved Applications
     approved = prev[prev['NAME_CONTRACT_STATUS_Approved'] == 1]
-    approved_agg = approved.groupby('SK_ID_CURR').agg({**num_aggregations})
+    approved_agg = approved.groupby('SK_ID_CURR').agg(num_aggregations)
     approved_agg.columns = pd.Index(
         ['APPROVED_' + e[0] + "_" + e[1].upper() for e in approved_agg.columns.tolist()])
     prev_agg = prev_agg.join(approved_agg, how='left', on='SK_ID_CURR')
@@ -707,7 +806,7 @@ def previous_applications(prev, nan_as_category=True):
 
     # Previous Applications: Refused Applications
     refused = prev[prev['NAME_CONTRACT_STATUS_Refused'] == 1]
-    refused_agg = refused.groupby('SK_ID_CURR').agg({**num_aggregations})
+    refused_agg = refused.groupby('SK_ID_CURR').agg(num_aggregations)
     refused_agg.columns = pd.Index(
         ['REFUSED_' + e[0] + "_" + e[1].upper() for e in refused_agg.columns.tolist()])
     prev_agg = prev_agg.join(refused_agg, how='left', on='SK_ID_CURR')
@@ -960,6 +1059,7 @@ def final_process(df, nan_as_category=True):
     df['FINAL_APP_AMT_CREDIT_TO_PREV_CNT_PAYMENT_MEAN_RATIO'] = df['AMT_CREDIT'] / df['PREV_CNT_PAYMENT_MEAN']
     df['FINAL_APP_AMT_ANNUITY_TO_PREV_CNT_PAYMENT_MEAN_RATIO'] = df['AMT_ANNUITY'] / df['PREV_CNT_PAYMENT_MEAN']
     df['FINAL_PREV_PLAN_TIME_SPAN_MEAN_TO_APP_DAYS_EMPLOYED_RATIO'] = df['PREV_PLAN_TIME_SPAN_MEAN'] / df['DAYS_EMPLOYED']
+    df['FINAL_PREV_PLAN_TIME_SPAN_SUM_TO_APP_DAYS_EMPLOYED_RATIO'] = df['PREV_PLAN_TIME_SPAN_SUM'] / df['DAYS_EMPLOYED']
     df['FINAL_PREV_AVG_ANNUITY_BY_DAY_MEAN_TO_AMT_INCOME_TOTAL_RATIO'] = df['PREV_AVG_ANNUITY_BY_DAY_MEAN'] / df['AMT_INCOME_TOTAL']
     df['FINAL_PREV_AVG_TOTAL_PAYMENT_BY_DAY_MEAN_TO_AMT_INCOME_TOTAL_RATIO'] = df['PREV_AVG_TOTAL_PAYMENT_BY_DAY_MEAN'] / df['AMT_INCOME_TOTAL']
 
@@ -1074,6 +1174,6 @@ def feature_extract(debug, input_config):
     with timer("Process Final Stage"):
         df = final_process(df)
         # feature filter
-        df.drop(columns=list(set(DROP_FEATS) & set(df.columns)), inplace=True)
+        # df.drop(columns=list(set(DROP_FEATS) & set(df.columns)), inplace=True)
 
     return df[df['TARGET'].notnull()], df[df['TARGET'].isnull()]
