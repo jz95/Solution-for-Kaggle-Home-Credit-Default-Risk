@@ -341,18 +341,79 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     bureau_agg['BURO_TOTAL_CREDIT_CNT'] = bureau.groupby('SK_ID_CURR')['CREDIT_TYPE'].size()
     bureau_agg['BURO_CREDIT_TYPE_DIVERSITY'] = bureau_agg['BURO_TOTAL_CREDIT_CNT'] / bureau_agg['BURO_CREDIT_TYPE_CNT']
 
-    # LOAN FREQUENCY
-    temp = bureau[['SK_ID_CURR', 'DAYS_CREDIT']].groupby('SK_ID_CURR')
-    temp = temp.apply(lambda x: x.sort_values(['DAYS_CREDIT'], ascending=False)).reset_index(drop=True)
+    # Calculate the change trend on some numerical cols
+    bureau = bureau.groupby('SK_ID_CURR').\
+                  apply(lambda x: x.sort_values(['DAYS_CREDIT'], ascending=False)).\
+                  reset_index(drop=True)
 
-    temp['DAYS_CREDIT'] = -1 * temp['DAYS_CREDIT']
-    temp['DAYS_DIFF'] = temp.groupby('SK_ID_CURR')['DAYS_CREDIT'].diff()
-    bureau_agg['BURO_DAYS_DIFF_MAX'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].max()
-    bureau_agg['BURO_DAYS_DIFF_MIN'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].min()
-    bureau_agg['BURO_DAYS_DIFF_MEAN'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].mean()
+    change_ratio_cols = [
+        'AMT_CREDIT_SUM',
+        'AMT_CREDIT_SUM_DEBT',
+        'AMT_ANNUITY',
+        'AMT_CREDIT_MAX_OVERDUE',
+        'CNT_CREDIT_PROLONG',
+
+        'DAYS_CREDIT_SUB_UPDATE',
+        'DAYS_CREDIT_TO_UPDATE_RATIO',
+        'DAYS_ENDDATE_SUB_UPDATE',
+        'DAYS_ENDDATE_TO_UPDATE_RATIO',
+
+        'DAYS_FACT_SUB_ENDDATE',
+        'DAYS_FACT_SUB_UPDATE',
+        'DAYS_FACT_TO_UPDATE_RATIO',
+
+        'PLAN_TIME_SPAN',
+        'ACTUAL_TIME_SPAN',
+        'ACTUAL_TIME_SPAN_TO_PLAN_RATIO',
+
+        'DAYS_FACT_SUB_UPDATE_TO_ACTUAL_TIME_SPAN_RATIO',
+        'DAYS_ENDDATE_SUB_UPDATE_TO_PLAN_TIME_SPAN_RATIO',
+
+        'DAYS_ENDDATE_TO_DAYS_CREDIT_RATIO',
+        'DAYS_OVERDUE_TO_CREDIT_RATIO',
+        'DAYS_OVERDUE_TO_PLAN_TIME_SPAN_RATIO',
+        'DAYS_OVERDUE_TO_ACTUAL_TIME_SPAN_RATIO',
+
+        'AMT_OVERDUE_TO_CREDIT_RATIO',
+        'AMT_OVERDUE_TO_DEBT_RATIO',
+        'AMT_DEBT_TO_CREDIT_RATIO',
+        'AMT_LIMIT_TO_CREDIT_RATIO',
+        'AMT_MAX_OVERDUE_TO_CREDIT_RATIO',
+
+        'AMT_ANNUITY_TO_CREDIT_RATIO',
+        'AMT_ANNUITY_TO_DEBT_RATIO',
+
+        'AVG_ANNUITY_BY_MONTH',
+        'AVG_CREDIT_BY_MONTH',
+        'AVG_DEBT_BY_MONTH',
+
+        'MONTHS_BALANCE_SIZE'
+    ]
+
+    diff_cols = [
+        'DAYS_CREDIT',
+        'CREDIT_DAY_OVERDUE',
+        'DAYS_CREDIT_ENDDATE',
+        'DAYS_ENDDATE_FACT',
+        'DAYS_CREDIT_UPDATE',
+    ]
+
+    diff_cols += change_ratio_cols
+
+    def change_ratio(df):
+        return df.shift(-1) / df - 1
+
+    def diff(df):
+        return df.shift(-1) - df
+
+    new_col_cg_ratio = [col + '_CHANGE_RATIO' for col in change_ratio_cols]
+    bureau[new_col_cg_ratio] = bureau.groupby('SK_ID_CURR')[change_ratio_cols].apply(change_ratio)
+
+    new_col_diff = [col + '_DIFF' for col in diff_cols]
+    bureau[new_col_diff] = bureau.groupby('SK_ID_CURR')[diff_cols].apply(diff)
 
     # APP TIME SPAN
-    bureau_agg['BURO_ALL_CREDIT_TIME_SPAN'] = temp.groupby('SK_ID_CURR')['DAYS_CREDIT'].agg(lambda x: x.max() - x.min())
+    bureau_agg['BURO_ALL_CREDIT_TIME_SPAN'] = bureau.groupby('SK_ID_CURR')['DAYS_CREDIT'].agg(lambda x: x.max() - x.min())
 
     bureau, bureau_cat = one_hot_encoding(bureau, nan_as_category)
 
@@ -429,6 +490,9 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
         'MONTHS_BALANCE_SIZE': ['mean', 'sum']
     }
 
+    for col in new_col_cg_ratio + new_col_diff:
+        num_aggregations[col] = ['min', 'max', 'mean']
+
     # Bureau and bureau_balance categorical features
     cat_aggregations = {}
     for cat in bureau_cat:
@@ -442,8 +506,8 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     del bureau_agg_auto
     gc.collect()
 
-    bureau_agg['BURO_DAYS_DIFF_MEAN_TO_ACTUAL_TIME_SPAN_MEAN_RATIO'] = bureau_agg['BURO_DAYS_DIFF_MEAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_MEAN']
-    bureau_agg['BURO_DAYS_DIFF_MEAN_TO_ACTUAL_TIME_SPAN_SUM_RATIO'] = bureau_agg['BURO_DAYS_DIFF_MEAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_SUM']
+    bureau_agg['BURO_DAYS_CREDIT_DIFF_MEAN_TO_ACTUAL_TIME_SPAN_MEAN_RATIO'] = bureau_agg['BURO_DAYS_CREDIT_DIFF_MEAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_MEAN']
+    bureau_agg['BURO_DAYS_CREDIT_DIFF_MEAN_TO_ACTUAL_TIME_SPAN_SUM_RATIO'] = bureau_agg['BURO_DAYS_CREDIT_DIFF_MEAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_SUM']
     bureau_agg['BURO_ALL_CREDIT_TIME_SPAN_TO_ACUTAL_TIME_SPAN_SUM_RATIO'] = bureau_agg['BURO_ALL_CREDIT_TIME_SPAN'] / bureau_agg['BURO_ACTUAL_TIME_SPAN_SUM']
 
     bureau_agg['BURO_AMT_CREDIT_SUM_SUM_TO_LIMIT_SUM_RATIO'] = bureau_agg['BURO_AMT_CREDIT_SUM_SUM'] / bureau_agg['BURO_AMT_CREDIT_SUM_LIMIT_SUM']
@@ -607,14 +671,73 @@ def previous_applications(prev, nan_as_category=True):
     prev_agg = app_diversity_on_cate_cols(
         prev, [col for col in prev.columns if prev[col].dtype == 'object']).set_index('SK_ID_CURR')
 
-    # PREVIOUS APP INTERVAL
-    temp = prev[['DAYS_TERMINATION', 'SK_ID_CURR']].groupby('SK_ID_CURR')
-    temp = temp.apply(lambda x: x.sort_values(['DAYS_TERMINATION'], ascending=False)).reset_index(drop=True)
-    temp['DAYS_DIFF'] = temp.groupby('SK_ID_CURR')['DAYS_TERMINATION'].diff()
+    # FIND THE TREND IN PREV 
+    prev = prev.groupby('SK_ID_CURR').\
+                apply(lambda x: x.sort_values(['DAYS_TERMINATION'], ascending=False)).\
+                reset_index(drop=True)
+    change_ratio_cols = [
+        'AMT_ANNUITY',
+        'AMT_APPLICATION',
+        'AMT_CREDIT',
+        'AMT_DOWN_PAYMENT',
+        'AMT_GOODS_PRICE',
+        
+        'RATE_DOWN_PAYMENT',
+        'RATE_INTEREST_PRIMARY',
+        'RATE_INTEREST_PRIVILEGED',
 
-    prev_agg['PREV_DAYS_DIFF_MAX'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].max()
-    prev_agg['PREV_DAYS_DIFF_MIN'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].min()
-    prev_agg['PREV_DAYS_DIFF_MEAN'] = temp.groupby('SK_ID_CURR')['DAYS_DIFF'].mean()
+        'DAYS_DECISION',
+        'CNT_PAYMENT',
+        
+        'APP_TO_ANNUITY_RATIO',
+        'APP_TO_CREDIT_RATIO',
+        'APP_TO_DOWN_RATIO',
+        'APP_TO_PRICE_RATIO',
+
+        'ANNUITY_TO_CREDIT_RATIO',
+        'ANNUITY_TO_DOWN_RATIO',
+        'ANNUITY_TO_PRICE_RATIO',
+
+        'CREDIT_TO_DOWN_RATIO',
+        'CREDIT_TO_PRICE_RATIO',
+
+        'DOWN_TO_PRICE_RATIO',
+        'APP_SUB_CREDIT',
+
+        'AVG_PAYMENT_AMT_CREDIT',
+        'AVG_PAYMENT_AMT_ANNUITY',
+        'AVG_PAYMENT_TOTAL',
+        
+        'PLAN_TIME_SPAN',
+        'ACTUAL_TIME_SPAN',
+        'LAST_DUE_DIFF',
+        'ACTUAL_TIME_SPAN_TO_PLAN_RATIO',
+        'DAYS_DESICION_TO_FTRST_DUE_RATIO',
+        'DAYS_TERMINATION_SUB_LAST_DUE',
+
+        'AVG_PAYMENT_DAYS',
+        'AVG_PAYMENT_BY_DAY',
+        'AVG_ANNUITY_BY_DAY',
+        'AVG_TOTAL_PAYMENT_BY_DAY',
+    ]
+
+    diff_cols = [
+        'DAYS_TERMINATION',
+    ]
+
+    diff_cols += change_ratio_cols
+
+    def change_ratio(df):
+        return df.shift(-1) / df - 1
+
+    def diff(df):
+        return df.shift(-1) - df
+
+    new_col_cg_ratio = [col + '_CHANGE_RATIO' for col in change_ratio_cols]
+    prev[new_col_cg_ratio] = prev.groupby('SK_ID_CURR')[change_ratio_cols].apply(change_ratio)
+
+    new_col_diff = [col + '_DIFF' for col in diff_cols]
+    prev[new_col_diff] = prev.groupby('SK_ID_CURR')[diff_cols].apply(diff)
 
     prev, cat_cols = one_hot_encoding(prev, nan_as_category)
 
@@ -771,6 +894,9 @@ def previous_applications(prev, nan_as_category=True):
         'IS_SELLERPLACE_AREA_ZERO': ['mean', 'sum'],
     }
 
+    for col in new_col_cg_ratio + new_col_diff:
+        num_aggregations[col] = ['min', 'max', 'mean']
+
     agg_aggregations = {}
     agg_cols = [col for col in prev.columns if 'MEAN_ON_' in col or 'STD_ON_' in col]
     for agg in agg_cols:
@@ -791,8 +917,8 @@ def previous_applications(prev, nan_as_category=True):
     del prev_agg_auto
     gc.collect()
 
-    prev_agg['PREV_DAYS_DIFF_MAX_DIV_ACTUAL_TIME_SPAN_SUM'] = prev_agg['PREV_DAYS_DIFF_MAX'] / prev_agg['PREV_ACTUAL_TIME_SPAN_SUM']
-    prev_agg['PREV_DAYS_DIFF_MEAN_DIV_ACTUAL_TIME_SPAN_MEAN'] = prev_agg['PREV_DAYS_DIFF_MEAN'] / prev_agg['PREV_ACTUAL_TIME_SPAN_MEAN']
+    prev_agg['PREV_DAYS_TERMINATION_DIFF_MAX_DIV_ACTUAL_TIME_SPAN_SUM'] = prev_agg['PREV_DAYS_TERMINATION_DIFF_MAX'] / prev_agg['PREV_ACTUAL_TIME_SPAN_SUM']
+    prev_agg['PREV_DAYS_TERMINATION_DIFF_MEAN_DIV_ACTUAL_TIME_SPAN_MEAN'] = prev_agg['PREV_DAYS_TERMINATION_DIFF_MEAN'] / prev_agg['PREV_ACTUAL_TIME_SPAN_MEAN']
     prev_agg['PREV_IS_LATER_PAID_SUM_DIV_IS_EARLY_SUM_PAID'] = prev_agg['PREV_IS_LATER_PAID_SUM'] / prev_agg['PREV_IS_EARLY_PAID_SUM']
 
     # Previous Applications: Approved Applications
@@ -875,6 +1001,39 @@ def installments_payments(ins, nan_as_category=True):
     ins['DPD'] = ins['DPD'].apply(lambda x: x if x > 0 else 0)
     ins['DBD'] = ins['DBD'].apply(lambda x: x if x > 0 else 0)
 
+    ins = ins.groupby('SK_ID_CURR').\
+              apply(lambda x: x.sort_values(['DAYS_INSTALMENT'], ascending=False)).\
+              reset_index(drop=True)
+
+    change_ratio_cols = [
+        'AMT_INSTALMENT',
+        'AMT_PAYMENT',
+        'DAYS_ENTRY_TO_INSTAL_RATIO',
+        'AMT_PAYMENT_TO_INSTAL_RATIO',
+        'AMT_PAYMENT_SUB_INSTAL',
+    ]
+
+    diff_cols = [
+        'DPD',
+        'DBD',
+        'DAYS_INSTALMENT',
+        'DAYS_ENTRY_PAYMENT',
+    ]
+
+    diff_cols += change_ratio_cols
+
+    def change_ratio(df):
+        return df.shift(-1) / df - 1
+
+    def diff(df):
+        return df.shift(-1) - df
+
+    new_col_cg_ratio = [col + '_CHANGE_RATIO' for col in change_ratio_cols]
+    ins[new_col_cg_ratio] = ins.groupby('SK_ID_CURR')[change_ratio_cols].apply(change_ratio)
+
+    new_col_diff = [col + '_DIFF' for col in diff_cols]
+    ins[new_col_diff] = ins.groupby('SK_ID_CURR')[diff_cols].apply(diff)
+
     # agg by SK_ID_PREV
     agg_by_prev = ins.groupby('SK_ID_PREV')[['DAYS_INSTALMENT']].\
                 agg(lambda x: x.max() - x.min()).reset_index().\
@@ -897,11 +1056,11 @@ def installments_payments(ins, nan_as_category=True):
 
     # merge agg_by_prev back to ins_agg on SK_ID_CURR
     prev_aggregation = {
-    'TIME_SPAN': ['min', 'max', 'mean', 'sum'],
-    'INSTALL_TIMES': ['min', 'max', 'mean'],
-    'INSTAL_VERSION_N_UNIQUE': ['min', 'max', 'mean', 'sum'],
-    'INSTAL_VERSION_CHANGE': ['sum', 'mean'],
-    'INSTAL_DIVERSITY': ['min', 'max', 'mean']
+        'TIME_SPAN': ['min', 'max', 'mean', 'sum'],
+        'INSTALL_TIMES': ['min', 'max', 'mean'],
+        'INSTAL_VERSION_N_UNIQUE': ['min', 'max', 'mean', 'sum'],
+        'INSTAL_VERSION_CHANGE': ['sum', 'mean'],
+        'INSTAL_DIVERSITY': ['min', 'max', 'mean']
     }
 
     for col, fcn_lst in prev_aggregation.items():
@@ -926,6 +1085,8 @@ def installments_payments(ins, nan_as_category=True):
         'AMT_PAYMENT_SUB_INSTAL': ['min', 'mean', 'var'],
         'IS_PAYMENNT_NOT_ENOUGH': ['mean', 'sum'],
     }
+    for col in new_col_cg_ratio + new_col_diff:
+        num_aggregations[col] = ['min', 'max', 'mean']
 
     ins_agg_auto = ins.groupby('SK_ID_CURR').agg(aggregations)
     ins_agg_auto.columns = pd.Index(
@@ -958,6 +1119,47 @@ def credit_card_balance(cc, nan_as_category=True):
     cc['IS_DPD_GT_ZERO'] = (cc['SK_DPD'] > 0).astype('float')
     cc['IS_DPD_DEF_GT_ZERO'] = (cc['SK_DPD_DEF'] > 0).astype('float')
 
+    # TREND BY TIME
+    cc = cc.groupby('SK_ID_PREV').apply(lambda x: x.sort_values(['MONTHS_BALANCE'], ascending=False)).reset_index(drop=True)
+
+    change_ratio_cols = [
+        'AMT_BALANCE',
+        'AMT_PAYMENT_CURRENT',
+        'AMT_RECIVABLE',
+        'AMT_INST_MIN_REGULARITY',
+
+        'AMT_DRAWINGS_ATM_CURRENT',
+        'AMT_DRAWINGS_CURRENT',
+        'AMT_DRAWINGS_OTHER_CURRENT',
+        'AMT_DRAWINGS_POS_CURRENT',
+
+        'CNT_DRAWINGS_ATM_CURRENT',
+        'CNT_DRAWINGS_CURRENT',
+        'CNT_DRAWINGS_OTHER_CURRENT',
+        'CNT_DRAWINGS_POS_CURRENT',
+
+        'SK_DPD',
+
+        'RECIVABLE_TO_PRINCIPAL_RATIO',
+        'RECIVABLE_SUB_PRINCIPAL',
+
+        'DRAWINGS_TO_CREDIT_RATIO',
+        'BALANCE_TO_CREDIT_RATIO',
+    ]
+
+    diff_cols = change_ratio_cols
+
+    def change_ratio(df):
+        return df.shift(-1) / df - 1
+
+    def diff(df):
+        return df.shift(-1) - df
+
+    new_col_cg_ratio = [col + '_CHANGE_RATIO' for col in change_ratio_cols]
+    cc[new_col_cg_ratio] = cc.groupby('SK_ID_PREV')[change_ratio_cols].apply(change_ratio)
+
+    new_col_diff = [col + '_DIFF' for col in diff_cols]
+    cc[new_col_diff] = cc.groupby('SK_ID_PREV')[diff_cols].apply(diff)
 
     # number of loans
     cc_agg = cc.groupby('SK_ID_CURR')['SK_ID_PREV'].\
@@ -1019,6 +1221,9 @@ def credit_card_balance(cc, nan_as_category=True):
     cate_aggregations = {}
     for cat in cat_cols:
         cate_aggregations[cat] = ['mean', 'sum']
+
+    for col in new_col_cg_ratio + new_col_diff:
+        num_aggregations[col] = ['min', 'max', 'mean']
 
     cc_agg_auto = cc.groupby('SK_ID_CURR').agg({**num_aggregations, **cate_aggregations})
     cc_agg_auto.columns = pd.Index(['CC_' + e[0] + "_" + e[1].upper() for e in cc_agg_auto.columns.tolist()])
