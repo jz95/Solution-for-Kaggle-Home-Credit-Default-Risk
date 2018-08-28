@@ -681,14 +681,14 @@ def previous_applications(prev, nan_as_category=True):
         'AMT_CREDIT',
         'AMT_DOWN_PAYMENT',
         'AMT_GOODS_PRICE',
-        
+
         'RATE_DOWN_PAYMENT',
         'RATE_INTEREST_PRIMARY',
         'RATE_INTEREST_PRIVILEGED',
 
         'DAYS_DECISION',
         'CNT_PAYMENT',
-        
+
         'APP_TO_ANNUITY_RATIO',
         'APP_TO_CREDIT_RATIO',
         'APP_TO_DOWN_RATIO',
@@ -707,7 +707,7 @@ def previous_applications(prev, nan_as_category=True):
         'AVG_PAYMENT_AMT_CREDIT',
         'AVG_PAYMENT_AMT_ANNUITY',
         'AVG_PAYMENT_TOTAL',
-        
+
         'PLAN_TIME_SPAN',
         'ACTUAL_TIME_SPAN',
         'LAST_DUE_DIFF',
@@ -746,12 +746,9 @@ def previous_applications(prev, nan_as_category=True):
         'AMT_ANNUITY',
         'AMT_APPLICATION',
         'AMT_CREDIT',
-        'AMT_DOWN_PAYMENT',
         'AMT_GOODS_PRICE',
 
         'NFLAG_INSURED_ON_APPROVAL',
-
-        'RATE_DOWN_PAYMENT',
 
         'DAYS_DECISION',
         'CNT_PAYMENT',
@@ -787,7 +784,6 @@ def previous_applications(prev, nan_as_category=True):
         'DAYS_DESICION_TO_FTRST_DUE_RATIO',
         'DAYS_TERMINATION_SUB_LAST_DUE',
 
-        'IS_EARLY_PAID',
         'IS_LATER_PAID',
         'IS_FISRT_DRAWING_LATER_THAN_LAST_DUE',
         'IS_FISRT_DRAWING_LATER_THAN_FIRST_DUE',
@@ -800,7 +796,6 @@ def previous_applications(prev, nan_as_category=True):
         'IS_SELLERPLACE_AREA_MINUS_1',
         'IS_SELLERPLACE_AREA_ZERO',
     ]
-    cols += cat_cols
 
     def find_lateset_app(df, cols):
         # note that month balance is negative
@@ -1086,7 +1081,7 @@ def installments_payments(ins, nan_as_category=True):
         'IS_PAYMENNT_NOT_ENOUGH': ['mean', 'sum'],
     }
     for col in new_col_cg_ratio + new_col_diff:
-        num_aggregations[col] = ['min', 'max', 'mean']
+        aggregations[col] = ['min', 'max', 'mean']
 
     ins_agg_auto = ins.groupby('SK_ID_CURR').agg(aggregations)
     ins_agg_auto.columns = pd.Index(
@@ -1294,7 +1289,7 @@ def final_process(df, nan_as_category=True):
         'PREV_DAYS_DESICION_TO_FTRST_DUE_RATIO_MIN',
 
         'BURO_DAYS_CREDIT_MAX',
-        'BURO_DAYS_DIFF_MEAN',
+        'BURO_DAYS_CREDIT_DIFF_MEAN',
         'BURO_AMT_CREDIT_SUM_MIN',
         'BURO_DAYS_CREDIT_SUB_UPDATE_MEAN',
         'BURO_AMT_DEBT_TO_CREDIT_RATIO_MAX',
