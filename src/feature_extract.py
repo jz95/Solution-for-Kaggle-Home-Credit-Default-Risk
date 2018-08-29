@@ -7,6 +7,13 @@ import warnings
 warnings.filterwarnings(action='ignore')
 
 
+def reduce_mem(df):
+    for col in df.columns:
+        if df[col].dtype in ['float64', 'float32']:
+            df[col] = df[col].astype('float16')
+    return df
+
+
 def one_hot_encoding(df, nan_as_category):
     original_columns = list(df.columns)
     categorical_columns = [
@@ -179,9 +186,9 @@ def application_train_test(train_df, test_df, nan_as_category=False):
     df['APP_60_SUB_30_DEF'] = df['DEF_60_CNT_SOCIAL_CIRCLE'] - df['DEF_30_CNT_SOCIAL_CIRCLE']
 
     # REQ AMT
-    df['APP_REQ_WEEK_GT_MON'] = (df['AMT_REQ_CREDIT_BUREAU_WEEK'] > df['AMT_REQ_CREDIT_BUREAU_YEAR']).astype('float')
-    df['APP_REQ_MON_GT_QRT'] = (df['AMT_REQ_CREDIT_BUREAU_MON'] > df['AMT_REQ_CREDIT_BUREAU_YEAR']).astype('float')
-    df['APP_REQ_QRT_GT_YEAR'] = (df['AMT_REQ_CREDIT_BUREAU_QRT'] > df['AMT_REQ_CREDIT_BUREAU_YEAR']).astype('float')
+    df['APP_REQ_WEEK_GT_MON'] = (df['AMT_REQ_CREDIT_BUREAU_WEEK'] > df['AMT_REQ_CREDIT_BUREAU_YEAR']).astype('float16')
+    df['APP_REQ_MON_GT_QRT'] = (df['AMT_REQ_CREDIT_BUREAU_MON'] > df['AMT_REQ_CREDIT_BUREAU_YEAR']).astype('float16')
+    df['APP_REQ_QRT_GT_YEAR'] = (df['AMT_REQ_CREDIT_BUREAU_QRT'] > df['AMT_REQ_CREDIT_BUREAU_YEAR']).astype('float16')
     df['APP_REQ_CNT_TOTAL'] = df['APP_REQ_WEEK_GT_MON'] + df['APP_REQ_MON_GT_QRT'] + df['APP_REQ_QRT_GT_YEAR']
 
     df['APP_CUM_REQ_DAY'] = df['AMT_REQ_CREDIT_BUREAU_HOUR'] + df['AMT_REQ_CREDIT_BUREAU_DAY']
@@ -205,6 +212,7 @@ def application_train_test(train_df, test_df, nan_as_category=False):
     on_cols = ['APP_CREDIT_TO_ANNUITY_RATIO', 'DAYS_BIRTH', 'APP_SCORE1_TO_BIRTH_RATIO', 'APP_ANNUITY_TO_INCOME_RATIO', 'AMT_INCOME_TOTAL']
 
     df = batch_agg(df, by_cols, on_cols, prefix='AGG_APP_')
+    df = reduce_mem(df)
     # df, _ = one_hot_encoding(df, nan_as_category)
     # df.drop(columns=level_cols, inplace=True)
     return df
@@ -224,7 +232,7 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
         return x.nunique() > 1
 
     bb_agg = bb.groupby('SK_ID_BUREAU')[['STATUS']].\
-                agg(see_change).rename(columns={'STATUS': 'STATUS_CHANGE'}).astype('float')
+                agg(see_change).rename(columns={'STATUS': 'STATUS_CHANGE'}).astype('float16')
 
     for i in range(1, 6):
         bb[bb['STATUS'] == str(i)]['STATUS'] = 'PASS_DUE'
@@ -251,6 +259,7 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     bb_agg_auto = bb.groupby('SK_ID_BUREAU').agg({**bb_aggregations, **status_aggregations})
     bb_agg_auto.columns = pd.Index([e[0] + "_" + e[1].upper() for e in bb_agg_auto.columns.tolist()])
     bb_agg = bb_agg.join(bb_agg_auto, on='SK_ID_BUREAU', how='left')
+    bb_agg = reduce_mem(bb_agg)
     del bb_agg_auto
     gc.collect()
 
@@ -276,8 +285,8 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     bureau['DAYS_FACT_SUB_UPDATE'] = bureau['DAYS_ENDDATE_FACT'] - bureau['DAYS_CREDIT_UPDATE']
     bureau['DAYS_FACT_TO_UPDATE_RATIO'] = bureau['DAYS_ENDDATE_FACT'] / bureau['DAYS_CREDIT_UPDATE']
 
-    bureau['IS_EARLY_PAID'] = (bureau['DAYS_ENDDATE_FACT'] < bureau['DAYS_CREDIT_ENDDATE']).astype('float')
-    bureau['IS_LATER_PAID'] = (bureau['DAYS_ENDDATE_FACT'] > bureau['DAYS_CREDIT_ENDDATE']).astype('float')
+    bureau['IS_EARLY_PAID'] = (bureau['DAYS_ENDDATE_FACT'] < bureau['DAYS_CREDIT_ENDDATE']).astype('float16')
+    bureau['IS_LATER_PAID'] = (bureau['DAYS_ENDDATE_FACT'] > bureau['DAYS_CREDIT_ENDDATE']).astype('float16')
 
     bureau['PLAN_TIME_SPAN'] = bureau['DAYS_ENDDATE_FACT'] - bureau['DAYS_CREDIT']
     bureau['ACTUAL_TIME_SPAN'] = bureau['DAYS_CREDIT_ENDDATE'] - bureau['DAYS_CREDIT']
@@ -293,9 +302,9 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     bureau['DAYS_OVERDUE_TO_ACTUAL_TIME_SPAN_RATIO'] = bureau['CREDIT_DAY_OVERDUE'] / bureau['ACTUAL_TIME_SPAN']
 
     # this feature means a user have paid his loan before he applied
-    bureau['IS_UNTRUSTWORTHY'] = (bureau['DAYS_CREDIT_ENDDATE'] < bureau['DAYS_CREDIT']).astype('float')
-    bureau['IS_END_IN_FUTURE'] = (bureau['DAYS_CREDIT_ENDDATE'] > 0).astype('float')
-    bureau['IS_OLD_UPDATE'] = (bureau['DAYS_CREDIT_UPDATE'] < -365).astype('float')
+    bureau['IS_UNTRUSTWORTHY'] = (bureau['DAYS_CREDIT_ENDDATE'] < bureau['DAYS_CREDIT']).astype('float16')
+    bureau['IS_END_IN_FUTURE'] = (bureau['DAYS_CREDIT_ENDDATE'] > 0).astype('float16')
+    bureau['IS_OLD_UPDATE'] = (bureau['DAYS_CREDIT_UPDATE'] < -365).astype('float16')
 
     # do some correction on AMT features
     def is_null_or_zero(val):
@@ -331,8 +340,8 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     bureau['AVG_DEBT_BY_MONTH'] = bureau['AMT_CREDIT_SUM_DEBT'] / bureau['MONTHS_BALANCE_SIZE']
     bureau['AVG_LIMIT_BY_MONTH'] = bureau['AMT_CREDIT_SUM_LIMIT'] / bureau['MONTHS_BALANCE_SIZE']
 
-    bureau['IS_DEBT_NEG'] = (bureau['AMT_CREDIT_SUM_DEBT'] < 0).astype('float')
-    bureau['IS_LIMIT_NEG'] = (bureau['AMT_CREDIT_SUM_DEBT'] < 0).astype('float')
+    bureau['IS_DEBT_NEG'] = (bureau['AMT_CREDIT_SUM_DEBT'] < 0).astype('float16')
+    bureau['IS_LIMIT_NEG'] = (bureau['AMT_CREDIT_SUM_DEBT'] < 0).astype('float16')
 
     # CREDIT TYPE DIVERSITY
     bureau_agg = bureau.groupby('SK_ID_CURR')[['CREDIT_TYPE']]\
@@ -401,10 +410,10 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     diff_cols += change_ratio_cols
 
     def change_ratio(df):
-        return df.shift(-1) / df - 1
+        return (df.shift(-1) / df - 1).astype('float16')
 
     def diff(df):
-        return df.shift(-1) - df
+        return (df.shift(-1) - df).astype('float16')
 
     new_col_cg_ratio = [col + '_CHANGE_RATIO' for col in change_ratio_cols]
     bureau[new_col_cg_ratio] = bureau.groupby('SK_ID_CURR')[change_ratio_cols].apply(change_ratio)
@@ -554,7 +563,7 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     bureau_agg = bureau_agg.join(future_agg, how='left', on='SK_ID_CURR')
     del future, future_agg
     gc.collect()
-
+    bureau_agg = reduce_mem(bureau_agg)
     return bureau_agg
 
 
@@ -597,11 +606,11 @@ def previous_applications(prev, nan_as_category=True):
     prev['DAYS_DESICION_TO_FTRST_DUE_RATIO'] = prev['DAYS_DECISION'] / prev['DAYS_FIRST_DUE']
     prev['DAYS_TERMINATION_SUB_LAST_DUE'] = prev['DAYS_TERMINATION'] - prev['DAYS_LAST_DUE']
 
-    prev['IS_EARLY_PAID'] = (prev['DAYS_LAST_DUE'] < prev['DAYS_LAST_DUE_1ST_VERSION']).astype('float')
+    prev['IS_EARLY_PAID'] = (prev['DAYS_LAST_DUE'] < prev['DAYS_LAST_DUE_1ST_VERSION']).astype('float16')
     # LAST_DUE was later than planned, might indicate finicial difficulty
-    prev['IS_LATER_PAID'] = (prev['DAYS_LAST_DUE'] > prev['DAYS_LAST_DUE_1ST_VERSION']).astype('float')
-    prev['IS_FISRT_DRAWING_LATER_THAN_LAST_DUE'] = (prev['DAYS_FIRST_DRAWING'] > prev['DAYS_LAST_DUE']).astype('float')
-    prev['IS_FISRT_DRAWING_LATER_THAN_FIRST_DUE'] = (prev['DAYS_FIRST_DRAWING'] > prev['DAYS_FIRST_DUE']).astype('float')
+    prev['IS_LATER_PAID'] = (prev['DAYS_LAST_DUE'] > prev['DAYS_LAST_DUE_1ST_VERSION']).astype('float16')
+    prev['IS_FISRT_DRAWING_LATER_THAN_LAST_DUE'] = (prev['DAYS_FIRST_DRAWING'] > prev['DAYS_LAST_DUE']).astype('float16')
+    prev['IS_FISRT_DRAWING_LATER_THAN_FIRST_DUE'] = (prev['DAYS_FIRST_DRAWING'] > prev['DAYS_FIRST_DUE']).astype('float16')
 
     prev['AVG_PAYMENT_DAYS'] = prev['ACTUAL_TIME_SPAN'] / prev['CNT_PAYMENT']
 
@@ -610,14 +619,14 @@ def previous_applications(prev, nan_as_category=True):
     prev['AVG_TOTAL_PAYMENT_BY_DAY'] = prev['AVG_ANNUITY_BY_DAY'] + prev['AVG_PAYMENT_BY_DAY']
 
     # OTHER
-    prev['IS_SELLERPLACE_AREA_MINUS_1'] = (prev['SELLERPLACE_AREA'] == -1).astype('float')
-    prev['IS_SELLERPLACE_AREA_ZERO'] = (prev['SELLERPLACE_AREA'] == 0).astype('float')
+    prev['IS_SELLERPLACE_AREA_MINUS_1'] = (prev['SELLERPLACE_AREA'] == -1).astype('float16')
+    prev['IS_SELLERPLACE_AREA_ZERO'] = (prev['SELLERPLACE_AREA'] == 0).astype('float16')
 
     # DO SOME AGG
-    prev['IS_X_SELL'] = (prev['NAME_PRODUCT_TYPE'] == 'x-sell').astype('float')
-    prev['IS_WALK_IN'] = (prev['NAME_PRODUCT_TYPE'] == 'walk-in').astype('float')
-    prev['IS_APPROVED'] = (prev['NAME_CONTRACT_STATUS'] == 'Approved').astype('float')
-    prev['IS_REFUSED'] = (prev['NAME_CONTRACT_STATUS'] == 'Refused').astype('float')
+    prev['IS_X_SELL'] = (prev['NAME_PRODUCT_TYPE'] == 'x-sell').astype('float16')
+    prev['IS_WALK_IN'] = (prev['NAME_PRODUCT_TYPE'] == 'walk-in').astype('float16')
+    prev['IS_APPROVED'] = (prev['NAME_CONTRACT_STATUS'] == 'Approved').astype('float16')
+    prev['IS_REFUSED'] = (prev['NAME_CONTRACT_STATUS'] == 'Refused').astype('float16')
 
     by_cols = [
         ('NAME_CONTRACT_TYPE', 'NAME_PAYMENT_TYPE', 'NAME_PORTFOLIO', 'NAME_YIELD_GROUP'),
@@ -728,10 +737,10 @@ def previous_applications(prev, nan_as_category=True):
     diff_cols += change_ratio_cols
 
     def change_ratio(df):
-        return df.shift(-1) / df - 1
+        return (df.shift(-1) / df - 1).astype('float16')
 
     def diff(df):
-        return df.shift(-1) - df
+        return (df.shift(-1) - df).astype('float16')
 
     new_col_cg_ratio = [col + '_CHANGE_RATIO' for col in change_ratio_cols]
     prev[new_col_cg_ratio] = prev.groupby('SK_ID_CURR')[change_ratio_cols].apply(change_ratio)
@@ -942,6 +951,7 @@ def previous_applications(prev, nan_as_category=True):
     prev_agg = prev_agg.join(xSell_agg, how='left', on='SK_ID_CURR')
     del xSell, xSell_agg
     gc.collect()
+    prev_agg = reduce_mem(prev_agg)
     return prev_agg
 
 
@@ -981,13 +991,14 @@ def pos_cash(pos, nan_as_category=True):
     pos_agg['POS_AVG_DPD_DEF'] = pos_agg['POS_SK_DPD_DEF_SUM'] / pos_agg['POS_REC_COUNT']
     del pos, pos_agg_auto
     gc.collect()
+    pos_agg = reduce_mem(pos_agg)
     return pos_agg
 
 
 def installments_payments(ins, nan_as_category=True):
     ins['AMT_PAYMENT_TO_INSTAL_RATIO'] = ins['AMT_PAYMENT'] / ins['AMT_INSTALMENT']
     ins['AMT_PAYMENT_SUB_INSTAL'] = ins['AMT_PAYMENT'] - ins['AMT_INSTALMENT']
-    ins['IS_PAYMENNT_NOT_ENOUGH'] = (ins['AMT_PAYMENT_SUB_INSTAL'] < 0).astype('float')
+    ins['IS_PAYMENNT_NOT_ENOUGH'] = (ins['AMT_PAYMENT_SUB_INSTAL'] < 0).astype('float16')
 
     # Days past due and days before due (no negative values)
     ins['DAYS_ENTRY_TO_INSTAL_RATIO'] = ins['DAYS_ENTRY_PAYMENT'] / ins['DAYS_INSTALMENT']
@@ -1018,10 +1029,10 @@ def installments_payments(ins, nan_as_category=True):
     diff_cols += change_ratio_cols
 
     def change_ratio(df):
-        return df.shift(-1) / df - 1
+        return (df.shift(-1) / df - 1).astype('float16')
 
     def diff(df):
-        return df.shift(-1) - df
+        return (df.shift(-1) - df).astype('float16')
 
     new_col_cg_ratio = [col + '_CHANGE_RATIO' for col in change_ratio_cols]
     ins[new_col_cg_ratio] = ins.groupby('SK_ID_CURR')[change_ratio_cols].apply(change_ratio)
@@ -1036,7 +1047,7 @@ def installments_payments(ins, nan_as_category=True):
                 set_index('SK_ID_PREV')
     agg_by_prev['INSTALL_TIMES'] = ins.groupby('SK_ID_PREV')['NUM_INSTALMENT_NUMBER'].max()
     agg_by_prev['INSTAL_VERSION_N_UNIQUE'] = ins.groupby('SK_ID_PREV')['NUM_INSTALMENT_VERSION'].nunique()
-    agg_by_prev['INSTAL_VERSION_CHANGE'] = (agg_by_prev['INSTAL_VERSION_N_UNIQUE'] > 1).astype('float')
+    agg_by_prev['INSTAL_VERSION_CHANGE'] = (agg_by_prev['INSTAL_VERSION_N_UNIQUE'] > 1).astype('float16')
     agg_by_prev['INSTAL_DIVERSITY'] = agg_by_prev['INSTALL_TIMES'] / agg_by_prev['INSTAL_VERSION_N_UNIQUE']
 
     # merge SK_ID_CURR col
@@ -1097,6 +1108,7 @@ def installments_payments(ins, nan_as_category=True):
 
     del ins, recent, ins_agg_auto, recent_agg, agg_by_prev
     gc.collect()
+    ins_agg = reduce_mem(ins_agg)
     return ins_agg
 
 
@@ -1104,15 +1116,15 @@ def credit_card_balance(cc, nan_as_category=True):
     # indicate the interest rate
     cc['RECIVABLE_TO_PRINCIPAL_RATIO'] = cc['AMT_RECIVABLE'] / cc['AMT_RECEIVABLE_PRINCIPAL']
     cc['RECIVABLE_SUB_PRINCIPAL'] = cc['AMT_RECIVABLE'] - cc['AMT_RECEIVABLE_PRINCIPAL']
-    cc['AMT_RECIVABLE_EQ_TOTAL'] = (cc['AMT_RECIVABLE'] == cc['AMT_TOTAL_RECEIVABLE']).astype('float')
+    cc['AMT_RECIVABLE_EQ_TOTAL'] = (cc['AMT_RECIVABLE'] == cc['AMT_TOTAL_RECEIVABLE']).astype('float16')
 
     cc['DRAWINGS_TO_CREDIT_RATIO'] = cc['AMT_DRAWINGS_CURRENT'] / cc['AMT_CREDIT_LIMIT_ACTUAL']
     cc['BALANCE_TO_CREDIT_RATIO'] = cc['AMT_BALANCE'] / cc['AMT_CREDIT_LIMIT_ACTUAL']
-    cc['PAYBACK_LT_INST_MIN'] = (cc['AMT_PAYMENT_CURRENT'] < cc['AMT_INST_MIN_REGULARITY']).astype('float')
+    cc['PAYBACK_LT_INST_MIN'] = (cc['AMT_PAYMENT_CURRENT'] < cc['AMT_INST_MIN_REGULARITY']).astype('float16')
     cc['PAYBACK_TO_INST_MIN_RATIO'] = cc['AMT_PAYMENT_CURRENT'] / cc['AMT_INST_MIN_REGULARITY']
 
-    cc['IS_DPD_GT_ZERO'] = (cc['SK_DPD'] > 0).astype('float')
-    cc['IS_DPD_DEF_GT_ZERO'] = (cc['SK_DPD_DEF'] > 0).astype('float')
+    cc['IS_DPD_GT_ZERO'] = (cc['SK_DPD'] > 0).astype('float16')
+    cc['IS_DPD_DEF_GT_ZERO'] = (cc['SK_DPD_DEF'] > 0).astype('float16')
 
     # TREND BY TIME
     cc = cc.groupby('SK_ID_PREV').apply(lambda x: x.sort_values(['MONTHS_BALANCE'], ascending=False)).reset_index(drop=True)
@@ -1145,10 +1157,10 @@ def credit_card_balance(cc, nan_as_category=True):
     diff_cols = change_ratio_cols
 
     def change_ratio(df):
-        return df.shift(-1) / df - 1
+        return (df.shift(-1) / df - 1).astype('float16')
 
     def diff(df):
-        return df.shift(-1) - df
+        return (df.shift(-1) - df).astype('float16')
 
     new_col_cg_ratio = [col + '_CHANGE_RATIO' for col in change_ratio_cols]
     cc[new_col_cg_ratio] = cc.groupby('SK_ID_PREV')[change_ratio_cols].apply(change_ratio)
@@ -1236,6 +1248,7 @@ def credit_card_balance(cc, nan_as_category=True):
     cc_agg = cc_agg.join(cc_agg_auto)
     del cc, temp, cc_agg_auto
     gc.collect()
+    cc_agg = reduce_mem(cc_agg)
     return cc_agg
 
 
@@ -1309,6 +1322,7 @@ def final_process(df, nan_as_category=True):
 
     # Categorical features with One-Hot encode
     df, _ = one_hot_encoding(df, nan_as_category)
+    df = reduce_mem(df)
     return df
 
 

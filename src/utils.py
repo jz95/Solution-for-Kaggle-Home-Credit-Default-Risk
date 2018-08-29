@@ -4,7 +4,6 @@ import yaml
 import os
 import pickle
 import pandas as pd
-import matplotlib.pyplot as plt
 import shutil
 from sklearn.model_selection import KFold, StratifiedKFold
 
@@ -64,8 +63,6 @@ class WorkSpace:
                 pickle.dump(obj, f)
         elif extension == 'csv' and isinstance(obj, pd.DataFrame):
             obj.to_csv(filename, index=False)
-        elif extension in ['png', 'jpg', 'jpeg']:
-            plt.savefig(filename)
         else:
             with open(filename, 'w') as f:
                 f.write(obj)
