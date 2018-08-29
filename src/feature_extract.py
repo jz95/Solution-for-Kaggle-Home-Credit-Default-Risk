@@ -227,6 +227,10 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     #####################
     ### process on bb ###
     #####################
+    bb = bb.groupby('SK_ID_BUREAU').\
+            apply(lambda x: x.sort_values(['MONTHS_BALANCE'], ascending=False)).\
+            reset_index(drop=True)
+
     # manual feature - has status changed over the records?
     def see_change(x):
         return x.nunique() > 1
@@ -238,14 +242,7 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
         bb[bb['STATUS'] == str(i)]['STATUS'] = 'PASS_DUE'
 
     # get the latest status for a certain bureau id
-    def find_lateset_status(df):
-        # note that month balance is negative
-        return df[df['MONTHS_BALANCE'] == df['MONTHS_BALANCE'].max()]['STATUS'].values[0]
-
-    latest_status = {}
-    for sk_id, sub_df in bb.groupby('SK_ID_BUREAU'):
-        latest_status[sk_id] = find_lateset_status(sub_df)
-    bb_agg['LATEST_STATUS'] = pd.Series(latest_status)
+    bb_agg['LATEST_STATUS'] = bb.groupby('SK_ID_BUREAU')['STATUS'].first()
 
     # respectively one hot encode bb_agg and bb
     bb_agg, _ = one_hot_encoding(bb_agg, nan_as_category)
@@ -731,6 +728,10 @@ def previous_applications(prev, nan_as_category=True):
     ]
 
     diff_cols = [
+        'DAYS_FIRST_DRAWING',
+        'DAYS_FIRST_DUE',
+        'DAYS_LAST_DUE_1ST_VERSION',
+        'DAYS_LAST_DUE',
         'DAYS_TERMINATION',
     ]
 
@@ -757,12 +758,9 @@ def previous_applications(prev, nan_as_category=True):
         'AMT_CREDIT',
         'AMT_GOODS_PRICE',
 
-        'NFLAG_INSURED_ON_APPROVAL',
-
         'DAYS_DECISION',
         'CNT_PAYMENT',
 
-        'DAYS_FIRST_DRAWING',
         'DAYS_FIRST_DUE',
         'DAYS_LAST_DUE',
         'DAYS_TERMINATION',
@@ -770,7 +768,6 @@ def previous_applications(prev, nan_as_category=True):
         'APP_TO_ANNUITY_RATIO',
         'APP_TO_CREDIT_RATIO',
         'APP_TO_DOWN_RATIO',
-        'APP_TO_PRICE_RATIO',
 
         'ANNUITY_TO_CREDIT_RATIO',
         'ANNUITY_TO_DOWN_RATIO',
@@ -793,35 +790,18 @@ def previous_applications(prev, nan_as_category=True):
         'DAYS_DESICION_TO_FTRST_DUE_RATIO',
         'DAYS_TERMINATION_SUB_LAST_DUE',
 
-        'IS_LATER_PAID',
-        'IS_FISRT_DRAWING_LATER_THAN_LAST_DUE',
-        'IS_FISRT_DRAWING_LATER_THAN_FIRST_DUE',
-
         'AVG_PAYMENT_DAYS',
         'AVG_PAYMENT_BY_DAY',
         'AVG_ANNUITY_BY_DAY',
         'AVG_TOTAL_PAYMENT_BY_DAY',
 
-        'IS_SELLERPLACE_AREA_MINUS_1',
-        'IS_SELLERPLACE_AREA_ZERO',
+        'IS_X_SELL',
+        'IS_WALK_IN',
+        'IS_APPROVED',
+        'IS_REFUSED',
     ]
 
-    def find_lateset_app(df, cols):
-        # note that month balance is negative
-        dest = df['DAYS_LAST_DUE_1ST_VERSION'].max()
-        ret = df.loc[df['DAYS_LAST_DUE_1ST_VERSION'] == dest, cols].values.ravel()
-        n = len(cols)
-        if len(ret) == 0:
-            ret = np.empty((n, ))
-            ret[:] = np.nan
-        elif len(ret) > n:
-            ret = ret[:n]
-        return ret
-
-    latestDf = {}
-    for sk_id, sub_df in prev.groupby('SK_ID_CURR'):
-        latestDf[sk_id] = find_lateset_app(sub_df, cols)
-    latestDf = pd.DataFrame(latestDf).T
+    latestDf = prev.groupby('SK_ID_CURR')[cols].first()
     new_col_names = ['PREV_' + col + '_LATEST' for col in cols]
     latestDf.columns = pd.Index(new_col_names)
 
@@ -956,19 +936,15 @@ def previous_applications(prev, nan_as_category=True):
 
 
 def pos_cash(pos, nan_as_category=True):
-    latest_status = {}
-    for sk_id, df in pos.groupby('SK_ID_CURR'):
-        min_ = df['CNT_INSTALMENT_FUTURE'].min()
-        if pd.isnull(min_):
-            if len(df) == 1:
-                latest_status[sk_id] = df['NAME_CONTRACT_STATUS'].values[0]
-            else:
-                latest_status[sk_id] = np.nan
-        else:
-            latest_status[sk_id] = df[df['CNT_INSTALMENT_FUTURE'] == min_]['NAME_CONTRACT_STATUS'].values[0]
+    pos = pos.groupby('SK_ID_CURR').\
+            apply(lambda x: x.sort_values(['MONTHS_BALANCE'], ascending=False)).\
+            reset_index(drop=True)
 
     pos_agg = pd.DataFrame()
-    pos_agg['LATEST_STATUS'] = pd.Series(latest_status)
+    pos_agg['POS_LATEST_STATUS'] = pos.groupby('SK_ID_CURR')['NAME_CONTRACT_STATUS'].first()
+    pos_agg['POS_LATEST_SK_DPD'] = pos.groupby('SK_ID_CURR')['SK_DPD'].first()
+    pos_agg['POS_LATEST_SK_DPD_DEF'] = pos.groupby('SK_ID_CURR')['SK_DPD_DEF'].first()
+
     pos_agg, _ = one_hot_encoding(pos_agg, nan_as_category)
 
     pos, cat_cols = one_hot_encoding(pos, nan_as_category)
@@ -1059,6 +1035,22 @@ def installments_payments(ins, nan_as_category=True):
     ins_agg = ins.groupby('SK_ID_CURR')[['SK_ID_PREV']].count().rename(columns={'SK_ID_PREV': 'INSTAL_USR_REC_CNT'})
     ins_agg['INSTAL_USR_LOAN_CNT'] = ins.groupby('SK_ID_CURR')['SK_ID_PREV'].nunique()
     ins_agg['INSTAL_REC_CNT_PER_LOAN'] = ins_agg['INSTAL_USR_REC_CNT'] / ins_agg['INSTAL_USR_LOAN_CNT']
+    
+    # Latest col for ins
+    latest_cols = [
+        'AMT_INSTALMENT',
+        'AMT_PAYMENT',
+        'DAYS_ENTRY_TO_INSTAL_RATIO',
+        'AMT_PAYMENT_TO_INSTAL_RATIO',
+        'AMT_PAYMENT_SUB_INSTAL',
+
+        'DPD',
+        'DBD',
+        'DAYS_INSTALMENT',
+        'DAYS_ENTRY_PAYMENT',
+    ]
+    new_col_latest = ['INSTAL_' + col + '_LATEST' for col in latest_cols]
+    ins_agg[new_col_latest] = ins.groupby('SK_ID_CURR')[latest_cols].first()
 
     # merge agg_by_prev back to ins_agg on SK_ID_CURR
     prev_aggregation = {
@@ -1127,7 +1119,9 @@ def credit_card_balance(cc, nan_as_category=True):
     cc['IS_DPD_DEF_GT_ZERO'] = (cc['SK_DPD_DEF'] > 0).astype('float16')
 
     # TREND BY TIME
-    cc = cc.groupby('SK_ID_PREV').apply(lambda x: x.sort_values(['MONTHS_BALANCE'], ascending=False)).reset_index(drop=True)
+    cc = cc.groupby('SK_ID_PREV').\
+            apply(lambda x: x.sort_values(['MONTHS_BALANCE'], ascending=False)).\
+            reset_index(drop=True)
 
     change_ratio_cols = [
         'AMT_BALANCE',
@@ -1167,7 +1161,6 @@ def credit_card_balance(cc, nan_as_category=True):
 
     new_col_diff = [col + '_DIFF' for col in diff_cols]
     cc[new_col_diff] = cc.groupby('SK_ID_PREV')[diff_cols].apply(diff)
-
     # number of loans
     cc_agg = cc.groupby('SK_ID_CURR')['SK_ID_PREV'].\
                 nunique().\
@@ -1176,6 +1169,35 @@ def credit_card_balance(cc, nan_as_category=True):
     cc_agg.set_index('SK_ID_CURR', inplace=True)
     # number of credit balance records
     cc_agg['CC_BLANCE_REC_CNT'] = cc.groupby('SK_ID_CURR').size()
+
+    # Latest col for cc
+    latest_cols = [
+        'AMT_BALANCE',
+        'AMT_PAYMENT_CURRENT',
+        'AMT_RECIVABLE',
+        'AMT_INST_MIN_REGULARITY',
+
+        'AMT_DRAWINGS_ATM_CURRENT',
+        'AMT_DRAWINGS_CURRENT',
+        'AMT_DRAWINGS_OTHER_CURRENT',
+        'AMT_DRAWINGS_POS_CURRENT',
+
+        'CNT_DRAWINGS_ATM_CURRENT',
+        'CNT_DRAWINGS_CURRENT',
+        'CNT_DRAWINGS_OTHER_CURRENT',
+        'CNT_DRAWINGS_POS_CURRENT',
+
+        'SK_DPD',
+
+        'RECIVABLE_TO_PRINCIPAL_RATIO',
+        'RECIVABLE_SUB_PRINCIPAL',
+
+        'DRAWINGS_TO_CREDIT_RATIO',
+        'BALANCE_TO_CREDIT_RATIO',
+    ]
+    new_col_latest = ['CC_' + col + '_LATEST' for col in latest_cols]
+    cc_agg[new_col_latest] = cc.groupby('SK_ID_CURR')[latest_cols].first()
+
 
     # handle on payback times
     temp = cc.groupby(['SK_ID_PREV', 'SK_ID_CURR'])['CNT_INSTALMENT_MATURE_CUM'].\
@@ -1327,7 +1349,7 @@ def final_process(df, nan_as_category=True):
 
 
 def feature_extract(debug, input_config):
-    num_rows = 10000 if debug else None
+    num_rows = 8000 if debug else None
 
     with timer("Process applications"):
         train_file = input_config['train_filepath']
