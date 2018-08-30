@@ -2,7 +2,7 @@
 ### CONFIG FOR MODEL STACKING ###
 #################################
 stacking_setting:
-  num_folds: 6
+  num_folds: 5
   stratified: True
   random_state: 2018
 

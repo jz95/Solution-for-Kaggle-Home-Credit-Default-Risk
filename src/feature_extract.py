@@ -7,13 +7,6 @@ import warnings
 warnings.filterwarnings(action='ignore')
 
 
-def reduce_mem(df):
-    for col in df.columns:
-        if df[col].dtype in ['float64', 'float32']:
-            df[col] = df[col].astype('float16')
-    return df
-
-
 def one_hot_encoding(df, nan_as_category):
     original_columns = list(df.columns)
     categorical_columns = [
@@ -24,24 +17,10 @@ def one_hot_encoding(df, nan_as_category):
     return df, new_columns
 
 
-def batch_box(df, cols):
-    level_cols = []
-    for col in cols:
-        temp = df[col]
-        upBnd = temp.quantile(0.99)
-        downBnd = temp.quantile(0.01)
-        temp[df[col] > upBnd] = upBnd
-        temp[df[col] < downBnd] = downBnd
-        new_col_name = col + '_LEVEL'
-        level_cols.append(new_col_name)
-        df[new_col_name] = pd.cut(temp, bins=4)
-    return df, level_cols
-
-
-def batch_agg(df, by_cols, on_cols, prefix=''):
+def batch_agg(df, by_cols, on_cols, agg_methods, prefix=''):
     agg_info = []
     for by_col in by_cols:
-        info = dict(by=list(by_col), on=on_cols, agg=['mean', 'std'])
+        info = dict(by=list(by_col), on=on_cols, agg=agg_methods)
         agg_info.append(info)
 
     for info in agg_info:
@@ -202,19 +181,15 @@ def application_train_test(train_df, test_df, nan_as_category=False):
     df['APP_CUM_REQ_MON_TO_QRT_RATIO'] = df['APP_CUM_REQ_MON'] / df['APP_CUM_REQ_QRT']
     df['APP_CUM_REQ_MON_TO_YEAR_RATIO'] = df['APP_CUM_REQ_MON'] / df['APP_CUM_REQ_YEAR']
 
-    # DO SOME AGGREGATION
+    # DO SOME AGGREGATION BY CATE COLUMNS
     by_cols = [
-        ('CODE_GENDER', 'FLAG_OWN_CAR', 'FLAG_OWN_REALTY', 'NAME_HOUSING_TYPE', 'WALLSMATERIAL_MODE', 'HOUSETYPE_MODE', 'EMERGENCYSTATE_MODE', 'FONDKAPREMONT_MODE'),
         ('CODE_GENDER', 'NAME_INCOME_TYPE', 'NAME_CONTRACT_TYPE'),
         ('CODE_GENDER', 'NAME_TYPE_SUITE', 'NAME_HOUSING_TYPE', 'NAME_FAMILY_STATUS', 'CNT_CHILDREN'),
         ('CODE_GENDER', 'OCCUPATION_TYPE', 'NAME_EDUCATION_TYPE', 'ORGANIZATION_TYPE', 'NAME_INCOME_TYPE'),
         ]
     on_cols = ['APP_CREDIT_TO_ANNUITY_RATIO', 'DAYS_BIRTH', 'APP_SCORE1_TO_BIRTH_RATIO', 'APP_ANNUITY_TO_INCOME_RATIO', 'AMT_INCOME_TOTAL']
-
-    df = batch_agg(df, by_cols, on_cols, prefix='AGG_APP_')
-    df = reduce_mem(df)
-    # df, _ = one_hot_encoding(df, nan_as_category)
-    # df.drop(columns=level_cols, inplace=True)
+    agg_methods = ['mean', 'std']
+    df = batch_agg(df, by_cols, on_cols, agg_methods, prefix='AGG_APP_')
     return df
 
 
@@ -256,7 +231,6 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     bb_agg_auto = bb.groupby('SK_ID_BUREAU').agg({**bb_aggregations, **status_aggregations})
     bb_agg_auto.columns = pd.Index([e[0] + "_" + e[1].upper() for e in bb_agg_auto.columns.tolist()])
     bb_agg = bb_agg.join(bb_agg_auto, on='SK_ID_BUREAU', how='left')
-    bb_agg = reduce_mem(bb_agg)
     del bb_agg_auto
     gc.collect()
 
@@ -560,7 +534,6 @@ def bureau_and_balance(bureau, bb, nan_as_category=True):
     bureau_agg = bureau_agg.join(future_agg, how='left', on='SK_ID_CURR')
     del future, future_agg
     gc.collect()
-    bureau_agg = reduce_mem(bureau_agg)
     return bureau_agg
 
 
@@ -654,9 +627,9 @@ def previous_applications(prev, nan_as_category=True):
         'APP_TO_PRICE_RATIO',
         'DAYS_LAST_DUE_1ST_VERSION',
     ]
-
-    prev = batch_agg(prev, by_cols, on_cols)
-    prev = batch_agg(prev, by_cols_2, on_cols_2)
+    agg_methods = ['mean']
+    prev = batch_agg(prev, by_cols, on_cols, agg_methods)
+    prev = batch_agg(prev, by_cols_2, on_cols_2, agg_methods)
 
     def app_diversity_on_cate_cols(df, process_info):
         ret = df.groupby('SK_ID_CURR')['SK_ID_PREV'].count().\
@@ -931,7 +904,6 @@ def previous_applications(prev, nan_as_category=True):
     prev_agg = prev_agg.join(xSell_agg, how='left', on='SK_ID_CURR')
     del xSell, xSell_agg
     gc.collect()
-    prev_agg = reduce_mem(prev_agg)
     return prev_agg
 
 
@@ -967,7 +939,6 @@ def pos_cash(pos, nan_as_category=True):
     pos_agg['POS_AVG_DPD_DEF'] = pos_agg['POS_SK_DPD_DEF_SUM'] / pos_agg['POS_REC_COUNT']
     del pos, pos_agg_auto
     gc.collect()
-    pos_agg = reduce_mem(pos_agg)
     return pos_agg
 
 
@@ -1100,7 +1071,6 @@ def installments_payments(ins, nan_as_category=True):
 
     del ins, recent, ins_agg_auto, recent_agg, agg_by_prev
     gc.collect()
-    ins_agg = reduce_mem(ins_agg)
     return ins_agg
 
 
@@ -1270,7 +1240,6 @@ def credit_card_balance(cc, nan_as_category=True):
     cc_agg = cc_agg.join(cc_agg_auto)
     del cc, temp, cc_agg_auto
     gc.collect()
-    cc_agg = reduce_mem(cc_agg)
     return cc_agg
 
 
@@ -1340,11 +1309,10 @@ def final_process(df, nan_as_category=True):
         'RECENT_INSTAL_AMT_PAYMENT_MAX',
         ]
 
-    df = batch_agg(df, by_cols, on_cols, 'AGG_FINAL_')
+    df = batch_agg(df, by_cols, on_cols, ['mean'], 'AGG_FINAL_')
 
     # Categorical features with One-Hot encode
     df, _ = one_hot_encoding(df, nan_as_category)
-    df = reduce_mem(df)
     return df
 
 

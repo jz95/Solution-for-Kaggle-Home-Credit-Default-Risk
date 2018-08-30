@@ -38,15 +38,6 @@ def main():
         help="running the model in debug mode,\
         i.e. only training a few samples helps \
         you locate the possible bugs quickly.")
-    parser.add_argument(
-        "-t", "--type",
-        default='lgb',
-        choices=['lgb', 'xgb', 'lgb-rf'],
-        help="choose wether to use lightGBM or XGBoost Libary.")
-
-    # parser.add_argument(
-    #     "-k", "--topK", type=int,
-    #     help="choose how many top feats you are using.")
 
     args = parser.parse_args()
 
@@ -65,16 +56,10 @@ def main():
     if args.debug and not args.name:
         name += '_DEBUG'
 
-    # with open('./rank_feats.pkl', 'rb') as f:
-    #     feats = pickle.load(f)
-    #     n = args.topK
-    #     topKfeats = feats[0: n + 1]
-
     run(
         name=name,
         debug=args.debug,
         mode=args.mode,
-        type_=args.type,
         train_path=args.train_data,
         test_path=args.test_data
     )

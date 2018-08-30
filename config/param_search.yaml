@@ -7,65 +7,13 @@ kfold_setting:
   stratified: True
   random_state: 2018
 
-# param grid for LightGBM Boosting
-lgb_param_grid:
+# param grid
+param_grid:
   n_jobs: -1
   verbose: -1
   random_state: 2018
   n_estimators: 1800
   learning_rate: 0.02
-  max_depth: -1
-
-  num_leaves:
-    - 43
-
-  subsample: 
-    - 0.85
-  subsample_freq: 
-    - 3
-  colsample_bytree:
-    - 0.1
-    # - 0.8
-    # - 0.9
-    # - 1.0
-
-  reg_alpha:
-    - 5
-    - 8
-  #   - 2
-  #   - 5
-  #   - 10
-  reg_lambda:
-    - 0.1
-    - 0.5
-    - 1
-    - 5
-  #   - 10
-
-  min_split_gain:
-    - 0.0222415
-  #   - 0.05
-  #   - 0.1
-  #   - 0.5
-  #   - 1
-  #   - 10
-  min_child_weight:
-    - 45
-  min_child_samples: 
-    - 20
-
-
-# param grid for LightGBM RandomForest
-lgb_rf_param_grid:
-  n_jobs: -1
-  verbose: -1
-  random_state: 2018
-  n_estimators: 
-    - 500
-    - 1000
-    - 1500
-    - 2000
-  learning_rate: 0.2
   max_depth: -1
 
   num_leaves:
@@ -84,53 +32,6 @@ lgb_rf_param_grid:
   reg_alpha:
     - 5
     # - 8
-  #   - 2
-  #   - 5
-  #   - 10
-  reg_lambda:
-    - 0.1
-    # - 0.5
-    # - 1
-    # - 5
-  #   - 10
-
-  # min_split_gain:
-    # - 0.035
-  #   - 0.05
-  #   - 0.1
-  #   - 0.5
-  #   - 1
-  #   - 10
-  min_child_weight:
-    - 45
-  min_child_samples: 
-    - 20
-
-
-# param grid for XGBoost
-xgb_param_grid:
-  n_jobs: -1
-  verbose: -1
-  random_state: 2018
-  n_estimators: 1800
-  learning_rate: 0.02
-  max_depth: -1
-
-  num_leaves:
-    - 43
-
-  subsample: 
-    - 0.85
-
-  colsample_bytree:
-    - 0.1
-    # - 0.8
-    # - 0.9
-    # - 1.0
-
-  reg_alpha:
-    - 5
-    - 8
   #   - 2
   #   - 5
   #   - 10

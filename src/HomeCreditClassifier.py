@@ -1,8 +1,6 @@
 from sklearn.metrics import roc_auc_score
 from copy import deepcopy
 from math import floor
-from xgboost.sklearn import XGBClassifier
-from lightgbm import LGBMClassifier
 import numpy as np
 import time
 import gc
@@ -15,11 +13,6 @@ class KFoldClassifier:
         self.__kfold_result = {}
         self.__feat_sample_rate = feat_sample
         self.__seed = sample_seed
-
-        if isinstance(clf, XGBClassifier):
-            self.__type = 'xgb'
-        elif isinstance(clf, LGBMClassifier):
-            self.__type = 'lgb'
 
     def __feat_sample(self, cols):
         np.random.seed(self.__seed)
@@ -43,33 +36,19 @@ class KFoldClassifier:
         fold_result['using_time'] = t1 - t0
         fold_result['feature_importance'] = clf.feature_importances_
 
-        if self.__type == 'lgb':
-            fold_result['best_iteration'] = clf.best_iteration_
+        fold_result['best_iteration'] = clf.best_iteration_
 
-            fold_result['best_score'] = {}
-            fold_result['best_score']['training'] = clf.best_score_[
-                'training']['auc']
-            fold_result['best_score']['valid'] = clf.best_score_[
-                'valid_1']['auc']
+        fold_result['best_score'] = {}
+        fold_result['best_score']['training'] = clf.best_score_[
+            'training']['auc']
+        fold_result['best_score']['valid'] = clf.best_score_[
+            'valid_1']['auc']
 
-            fold_result['evals_result'] = {}
-            fold_result['evals_result']['training'] = clf.evals_result_[
-                'training']['auc']
-            fold_result['evals_result']['valid'] = clf.evals_result_[
-                'valid_1']['auc']
-
-        elif self.__type == 'xgb':
-            fold_result['best_score'] = {}
-            train_x, train_y = kwargs['eval_set'][0]
-            valid_x, valid_y = kwargs['eval_set'][1]
-            fold_result['best_score']['training'] = roc_auc_score(train_y, clf.predict_proba(train_x)[: ,1])
-            fold_result['best_score']['valid'] = roc_auc_score(valid_y, clf.predict_proba(valid_x)[:, 1])
-
-            fold_result['evals_result'] = {}
-            fold_result['evals_result']['training'] = clf.evals_result_[
-                'validation_0']['auc']
-            fold_result['evals_result']['valid'] = clf.evals_result_[
-                'validation_1']['auc']
+        fold_result['evals_result'] = {}
+        fold_result['evals_result']['training'] = clf.evals_result_[
+            'training']['auc']
+        fold_result['evals_result']['valid'] = clf.evals_result_[
+            'valid_1']['auc']
 
         self.__kfold_result['fold_%s' % (on + 1)] = fold_result
 
@@ -80,9 +59,7 @@ class KFoldClassifier:
         start from 0.
         """
         clf = self.__clfs[out]
-        if self.__type == 'lgb':
-            kwargs['num_iteration'] = clf.best_iteration_
-        return clf.predict_proba(X, **kwargs)[:, 1]
+        return clf.predict_proba(X, num_iteration=clf.best_iteration_, **kwargs)[:, 1]
 
     def predict_proba(self, X, **kwargs):
         """
@@ -91,9 +68,8 @@ class KFoldClassifier:
         X = X[self.__features]
         ret = np.zeros(X.shape[0])
         for clf in self.__clfs:
-            if self.__type == 'lgb':
-                kwargs['num_iteration'] = clf.best_iteration_
-            ret += clf.predict_proba(X, **kwargs)[:, 1]
+            ret += clf.predict_proba(X,
+                                     num_iteration=clf.best_iteration_, **kwargs)[:, 1]
         ret /= len(self.__clfs)
         return ret
 
@@ -101,20 +77,15 @@ class KFoldClassifier:
         oof_preds = np.zeros(X.shape[0])
         self.__features = self.__feat_sample(list(X.columns))
         X = X[self.__features]
-        weights = kwargs['sample_weight']
+
         for n_fold, (train_idx, valid_idx) in enumerate(self.__cv.split(X, y)):
             train_x, train_y = X.iloc[train_idx], y.iloc[train_idx]
             valid_x, valid_y = X.iloc[valid_idx], y.iloc[valid_idx]
-            if weights is not None:
-                sample_weight, eval_sample_weight = weights[train_idx], list(weights[valid_idx])
-            else:
-                sample_weight, eval_sample_weight = None, None
+
             self.__fit_on_one_fold(train_x, train_y, on=n_fold,
                                    eval_set=[(train_x, train_y),
                                              (valid_x, valid_y)],
                                    eval_metric='auc', verbose=100,
-                                   sample_weight=sample_weight,
-                                   eval_sample_weight=eval_sample_weight,
                                    early_stopping_rounds=500)
             oof_preds[valid_idx] = self.__predict_proba_out_of_fold(
                 valid_x, out=n_fold)
@@ -203,7 +174,3 @@ class StackingClassifier:
     @property
     def meta_classifier_(self):
         return self.__meta_classifier
-
-    @property
-    def newX_pred(self):
-        return self.__new_X_pred

@@ -74,7 +74,7 @@ class WorkSpace:
             src = './notebook/TemplateReport/GridSearch.ipynb'
         elif type_ == 'stacking':
             src = './notebook/TemplateReport/Stacking.ipynb'
-        dst = os.path.join(self.__dir, 'report.ipynb')
+        dst = os.path.join(self.__dir, 'report-%s.ipynb' % self.__name)
         shutil.copyfile(src, dst)
 
 
@@ -84,21 +84,9 @@ def read_config(filename):
     return data
 
 
-def read_weights(filename):
-    try:
-        with open(filename, 'rb') as f:
-            data = pickle.load(f)
-    except Exception:
-        data = None
-    return data
-
-
 def gen_cv(num_folds, random_state, stratified):
     if stratified:
         return StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=random_state)
     else:
         return KFold(n_splits=num_folds, shuffle=True, random_state=random_state)
 
-
-if __name__ == '__main__':
-    pass
